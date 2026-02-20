@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Auth & Secrets
+auth_info/
+.env
+
+# Database (Local)
+database.json
+database.temp.json
+
+# System / Temp
+.DS_Store
+*.log
+*.tmp
+assets/
