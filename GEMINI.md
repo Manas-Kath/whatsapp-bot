@@ -49,3 +49,76 @@ The bot uses a specific minimalistic emoticon-based style for all command output
 - **Command Structure:** Each command must be an object with `name`, `alias` (optional), `adminOnly`, `superAdminOnly`, and a `run` async function.
 - **Error Handling:** Always wrap `sendMessage` and `run` calls in `try/catch` to prevent bot crashes.
 - **Aesthetic Consistency:** Ensure all new command outputs follow the Style A emoticon and bullet point conventions.
+
+## TODO (DIY Reliability First)
+- [ ] **Watchdog:** Add a lightweight watchdog to detect crashes or memory pressure and auto-restart safely.
+- [ ] **Auto AI Fallback:** If free RAM is low or AI timeouts repeat, auto-disable AI features and notify owner.
+- [ ] **Safe Mode on Repeated Crashes:** On boot, detect recent crash loops and start with minimal features (no AI, no stickers); allow owner to clear safe mode.
+- [ ] **Small Persistent Memory:** Persist AI memory window to a small JSON/SQLite store to reduce RAM usage and survive restarts.
+- [ ] **Log Hygiene:** Add a minimal rotating log file (small cap) to avoid digging through pm2 logs for every crash.
+- [ ] **Media Rate Limits:** Add per-feature rate limits for stickers/media conversions to avoid overload on low RAM.
+- [ ] **Settings Actually Enforced:** Wire `public_mode`, `auto_read`, and `anti_delete` into runtime behavior.
+- [ ] **Stats Counter Works:** Re-enable command count increment so `.stats` reflects reality.
+- [ ] **Env Key Consistency:** Pick one env key for prefix (`BOT_PREFIX` vs `PREFIX`) and align docs/code.
+- [ ] **Cache Size Control:** Limit anti-delete cache growth (shorter TTL or max cap) to avoid RAM creep.
+- [ ] **AI Temp Cleanup:** Ensure audio/image temp files are cleaned even on failure.
+- [ ] **Metadata Caching:** Cache group metadata for admin checks to reduce repeated API calls.
+- [ ] **Restart Strategy Choice:** Decide between `pm2` or `start.sh` loop to avoid double restarts.
+
+## Deployment (Laptop → J7 One-Click)
+Goal: push from laptop, then run a single command on the J7 to update and restart.
+
+### Repo on J7
+- Use Git with SSH (private repo). Auth key stored in `~/.ssh/id_ed25519`.
+- Project path: `~/thebuntyproject`
+- pm2 process name: `Bunty`
+
+### Persist WhatsApp Auth
+Keep auth outside repo so clean pulls don’t wipe session:
+- Persistent path: `~/bunty-data/auth_info`
+- Symlink: `~/thebuntyproject/auth_info` → `~/bunty-data/auth_info`
+
+### One-Click Updater Script
+Create `~/deploy.sh` (run once):
+```bash
+#!/data/data/com.termux/files/usr/bin/bash
+set -e
+
+APP=~/thebuntyproject
+DATA=~/bunty-data
+
+cd "$APP"
+
+# Keep auth_info outside repo (survives clean pulls)
+if [ -d "$DATA/auth_info" ] && [ ! -L "$APP/auth_info" ]; then
+  rm -rf "$APP/auth_info"
+  ln -s "$DATA/auth_info" "$APP/auth_info"
+elif [ ! -d "$DATA/auth_info" ] && [ -d "$APP/auth_info" ]; then
+  mkdir -p "$DATA"
+  mv "$APP/auth_info" "$DATA/auth_info"
+  ln -s "$DATA/auth_info" "$APP/auth_info"
+fi
+
+# Pull latest code
+git pull --ff-only
+
+# Install deps if needed (missing or package changed)
+if [ ! -d "$APP/node_modules" ]; then
+  npm install --ignore-scripts
+else
+  if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
+    if git diff --name-only HEAD~1 | grep -qE 'package.json|package-lock.json'; then
+      npm install --ignore-scripts
+    fi
+  fi
+fi
+
+# Restart bot
+pm2 restart Bunty
+```
+
+Run updates with:
+```bash
+~/deploy.sh
+```
+

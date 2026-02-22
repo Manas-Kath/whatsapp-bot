@@ -3,16 +3,25 @@ const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const safety = require('../../lib/safety');
 
 module.exports = {
     name: "sticker",
     alias: ["s", "stiker"],
     desc: "Convert image or video to sticker (Termux Optimized)",
     category: "fun",
-    run: async ({ sock, jid, msg, quoted }) => {
-        const targetMsg = msg.message.imageMessage || msg.message.videoMessage ? msg : quoted;
+    run: async ({ sock, jid, msg, quoted, sender, isSuperAdmin }) => {
+        // 🛡️ MEDIA RATE LIMIT (Skip for SuperAdmin)
+        if (!isSuperAdmin) {
+            const limit = safety.checkMediaLimit(sender, 'sticker');
+            if (!limit.allowed) {
+                return sock.sendMessage(jid, { text: `(ಠ_ಠ) *Chill!* Wait ${limit.timeLeft}s before making another sticker.` });
+            }
+        }
+
+        const targetMsg = (msg.message?.imageMessage || msg.message?.videoMessage) ? msg : quoted;
         
-        if (!targetMsg || (!targetMsg.message.imageMessage && !targetMsg.message.videoMessage)) {
+        if (!targetMsg || (!targetMsg.message?.imageMessage && !targetMsg.message?.videoMessage)) {
             return sock.sendMessage(jid, { text: "⚠️ *Missing Media:* Reply to an image or short video with `.sticker`" });
         }
 
@@ -57,15 +66,11 @@ module.exports = {
             const stickerBuffer = fs.readFileSync(outputPath);
             await sock.sendMessage(jid, { sticker: stickerBuffer }, { quoted: msg });
 
-            // Cleanup
-            if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
-            if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
-
         } catch (err) {
             console.error("Sticker Error:", err);
             await sock.sendMessage(jid, { text: `❌ *Error:* Failed to create sticker. Make sure 'ffmpeg' is installed (pkg install ffmpeg).` });
-            
-            // Cleanup on error
+        } finally {
+            // Cleanup (Survive the crash)
             if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);
             if (fs.existsSync(outputPath)) fs.unlinkSync(outputPath);
         }

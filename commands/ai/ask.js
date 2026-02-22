@@ -2,13 +2,12 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const config = require('../../config');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const NodeCache = require('node-cache');
+const memory = require('../../lib/memory');
 const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Memory to store chat history per user/group JID (30 min TTL)
-const chatMemory = new NodeCache({ stdTTL: 1800, checkperiod: 600 });
 const cooldowns = new NodeCache({ stdTTL: 10 }); 
 
 let genAI;
@@ -47,7 +46,7 @@ module.exports = {
         if (!model) return sock.sendMessage(jid, { text: "⚠️ Bunty is sleeping right now." });
 
         if (text === 'reset' || text === 'clear') {
-            chatMemory.del(jid);
+            memory.del(jid);
             return sock.sendMessage(jid, { text: "🚮 *Memory Cleared.*" });
         }
 
@@ -62,6 +61,9 @@ module.exports = {
         const isImage = msg.message?.imageMessage || quoted?.message?.imageMessage;
         const isAudio = msg.message?.audioMessage || quoted?.message?.audioMessage;
 
+        let tempIn = null;
+        let tempOut = null;
+
         if (isImage || isAudio) {
             try {
                 const targetMsg = (msg.message?.imageMessage || msg.message?.audioMessage) ? msg : quoted;
@@ -73,8 +75,8 @@ module.exports = {
                     if (!promptText) promptText = "Is photo pe comment maar.";
                 } else if (isAudio) {
                     // Convert OGG/OPUS to MP3 for better Gemini compatibility
-                    const tempIn = path.join(os.tmpdir(), `ai_in_${Date.now()}.ogg`);
-                    const tempOut = path.join(os.tmpdir(), `ai_out_${Date.now()}.mp3`);
+                    tempIn = path.join(os.tmpdir(), `ai_in_${Date.now()}.ogg`);
+                    tempOut = path.join(os.tmpdir(), `ai_out_${Date.now()}.mp3`);
                     fs.writeFileSync(tempIn, buffer);
 
                     await new Promise((resolve, reject) => {
@@ -88,18 +90,18 @@ module.exports = {
                     mediaData = fs.readFileSync(tempOut).toString("base64");
                     mimeType = "audio/mp3";
                     if (!promptText) promptText = "Is voice note mein kya hai? Transcribe and summarize it briefly in Bunty style.";
-                    
-                    // Cleanup
-                    if (fs.existsSync(tempIn)) fs.unlinkSync(tempIn);
-                    if (fs.existsSync(tempOut)) fs.unlinkSync(tempOut);
                 }
             } catch (err) {
                 console.error("Media processing failed:", err);
+            } finally {
+                // CLEANUP (Immediate)
+                if (tempIn && fs.existsSync(tempIn)) fs.unlinkSync(tempIn);
+                if (tempOut && fs.existsSync(tempOut)) fs.unlinkSync(tempOut);
             }
         }
 
         const statusContext = isSuperAdmin ? "[SYSTEM: BOSS user]" : "[SYSTEM: Regular user]";
-        let history = chatMemory.get(jid) || [];
+        let history = memory.get(jid);
 
         try {
             let responseText = "";
@@ -120,8 +122,7 @@ module.exports = {
 
                 history.push({ role: "user", parts: [{ text: promptText || "Yo" }] });
                 history.push({ role: "model", parts: [{ text: responseText }] });
-                if (history.length > 20) history = history.slice(-20);
-                chatMemory.set(jid, history);
+                memory.set(jid, history);
             }
 
             await sock.sendMessage(jid, { text: `(＾▽＾) ${cleanResponse(responseText)}` }, { quoted: msg });
