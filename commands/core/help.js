@@ -7,8 +7,8 @@ module.exports = {
     run: async ({ sock, jid, msg, isSuperAdmin, sender }) => {
         const { commands } = require('../../lib/handler');
         
-        const modCommands = ['ban', 'unban', 'hidetag', 'tagall', 'warn', 'stats'];
-        const ownerCommands = ['hardban', 'set', 'eval', 'clone', 'publicity'];
+        const modCommands = ['ban', 'unban', 'hidetag', 'tagall', 'stats'];
+        const ownerCommands = ['hardban', 'set', 'publicity', 'safety'];
 
         const map = {};
         commands.forEach((cmd) => {
@@ -21,16 +21,16 @@ module.exports = {
             map[cat].push(cmd);
         });
 
-        let text = `(｡◕‿◕｡) *BUNTY v5.5*\n`;
-        text += `(•‿•) User: @${sender.split('@')[0]}\n`;
+        let text = `*BUNTY v5.5* (._.)\n`;
+        text += `  • User: @${sender.split('@')[0]}\n`;
         text += `──────────────────\n`;
         
         const emojis = { 
-            'OWNER': ' ( ͡° ͜ʖ ͡°)',
+            'OWNER': ' (⌐■_■)',
             'MOD':   ' (ಠ_ಠ)',
             'ADMIN': ' (¬_¬)',
-            'AI':    ' [ 0_0 ] (✧ω✧)',
-            'FUN':   ' (¬‿¬) ヘ(￣ω￣ヘ)',
+            'AI':    ' [ 0_0 ]',
+            'FUN':   ' (¬‿¬)',
             'CORE':  ' ( ._.)',
             'MISC':  ' (o_O)'
         };
