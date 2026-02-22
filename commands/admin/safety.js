@@ -21,23 +21,15 @@ module.exports = {
         const health = safety.getMemoryHealth();
         const data = safety.getSafetyData();
         
-        let status = `*BUNTY v5.5 HEALTH* (._.)
-
-`;
-        status += `  • `Safe Mode` : ${data.safeMode ? '🔴 ACTIVE' : '🟢 inactive'}
-`;
-        status += `  • `Boots (5m)` : ${data.boots.length} / 3
-`;
-        status += `  • `RAM Usage` : ${health.nodeUsageMB} MB
-`;
-        status += `  • `Free RAM` : ${health.freePercent.toFixed(1)}%
-`;
-        status += `  • `AI Status` : ${Date.now() < data.aiDisabledUntil ? '🟠 throttled' : '🟢 ready'}
-`;
+        let status = `*BUNTY v5.5 HEALTH* (._.)\n\n`;
+        status += `  • \`Safe Mode\` : ${data.safeMode ? '🔴 ACTIVE' : '🟢 inactive'}\n`;
+        status += `  • \`Boots (5m)\` : ${data.boots.length} / 3\n`;
+        status += `  • \`RAM Usage\` : ${health.nodeUsageMB} MB\n`;
+        status += `  • \`Free RAM\` : ${health.freePercent.toFixed(1)}%\n`;
+        status += `  • \`AI Status\` : ${Date.now() < data.aiDisabledUntil ? '🟠 throttled' : '🟢 ready'}\n`;
         
         if (data.safeMode) {
-            status += `
-⚠️ *Bot is in Safe Mode.* Some features are limited. Use `.safety reset` to clear.`;
+            status += `\n⚠️ *Bot is in Safe Mode.* Some features are limited. Use \`.safety reset\` to clear.`;
         }
 
         return sock.sendMessage(jid, { text: status });
