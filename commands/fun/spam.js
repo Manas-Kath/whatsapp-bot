@@ -1,56 +1,60 @@
 const { delay } = require('../../lib/utils');
+const { jidNormalizedUser } = require('@whiskeysockets/baileys');
 
 module.exports = {
     name: "spam",
     alias: ["bomb", "annoy"],
-    desc: "Spam a user with messages",
-    run: async ({ sock, jid, msg, args, isSuperAdmin }) => {
-        // 1. Get Target
-        const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0];
-        if (!target) return sock.sendMessage(jid, { text: "❌ Usage: .spam @user <text> <amount>" });
+    desc: "Spam a user (Limit: 5 for all, 50 for BOSS)",
+    run: async ({ sock, jid, msg, args, isSuperAdmin, sender }) => {
+        // 1. Get Target (Tag, Reply, or direct JID)
+        const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 
+                      msg.message.extendedTextMessage?.contextInfo?.participant;
+        
+        if (!target) return sock.sendMessage(jid, { text: "(o_O) Usage: .spam @user <text> <amount>" });
+
+        const normTarget = jidNormalizedUser(target);
+        const normSender = jidNormalizedUser(sender);
 
         // 2. Admin Immunity
         const config = require('../../config');
-        const { jidNormalizedUser } = require('@whiskeysockets/baileys');
-        if (config.superAdminIds.includes(jidNormalizedUser(target))) {
-             return sock.sendMessage(jid, { text: "Target is immune." });
+        if (config.superAdminIds.includes(normTarget)) {
+             return sock.sendMessage(jid, { text: "(⌐■_■) Target is immune to your spam." });
+        }
+        if (normTarget === normSender) {
+            return sock.sendMessage(jid, { text: "(._.) You want to spam yourself?" });
         }
 
-        // 3. Parse Count & Text intelligently
-        // We look for the number in the arguments. 
+        // 3. Parse Count & Text
         let count = 5; // Default
         let textArgs = [];
 
         args.forEach(arg => {
-            if (!isNaN(arg) && textArgs.length === 0 && count === 5) {
-                // If it's a number and we haven't found text yet, assume it's the count
-                count = parseInt(arg);
-            } else if (!isNaN(arg) && args.indexOf(arg) === args.length - 1) {
-                // If it's a number and it's the LAST argument, it's definitely the count
-                count = parseInt(arg);
-            } else if (!arg.includes('@')) {
-                // If it's not a mention, add to text
+            const num = parseInt(arg);
+            if (!isNaN(num) && num > 0) {
+                count = num;
+            } else if (!arg.includes('@') && arg !== "-o") {
                 textArgs.push(arg);
             }
         });
 
         const text = textArgs.join(' ') || "Wake up!";
 
-        // 4. Safety Limits (Prevent Bans)
-        const limit = isSuperAdmin ? 50 : 10; // You get 50, others get 10
+        // 4. Safety Limits (Prevent Bans and J7 overheating)
+        const limit = isSuperAdmin ? 50 : 5; // BOSS gets 50, others get 5
         if (count > limit) count = limit;
 
-        await sock.sendMessage(jid, { text: `Launching ${count} spams...` });
+        await sock.sendMessage(jid, { text: `(¬‿¬) Launching ${count} spams...` });
 
         // 5. Fire with Delay
+        const waitTime = isSuperAdmin ? 1000 : 2000; // 1s for BOSS, 2s for others
         for (let i = 0; i < count; i++) {
             await sock.sendMessage(jid, { 
                 text: `@${target.split('@')[0]} ${text}`, 
                 mentions: [target] 
             });
-            await delay(1500); // 1.5s delay is safe for J7
+            await delay(waitTime); 
         }
         
-        await sock.sendMessage(jid, { text: "✅ Done." });
+        await sock.sendMessage(jid, { text: "(＾▽＾) Done." });
     }
 };

@@ -43,7 +43,7 @@ async function startBunty() {
     
     // Always fetch the latest version to avoid decryption lag
     const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(`🔥 Bunty v5.6 - WA v${version.join('.')}${isLatest ? ' (Latest)' : ' (Outdated)'}`);
+    console.log(`🔥 Bunty v5.6.1 - WA v${version.join('.')}${isLatest ? ' (Latest)' : ' (Outdated)'}`);
 
     loadCommands(); 
 
