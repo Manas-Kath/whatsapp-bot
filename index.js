@@ -8,6 +8,7 @@ const {
 } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const qrcode = require('qrcode-terminal');
+const fs = require('fs');
 const NodeCache = require('node-cache'); 
 const db = require('./lib/database');
 const { loadCommands, handleCommand } = require('./lib/handler');
@@ -67,15 +68,25 @@ async function startBunty() {
         
         if (connection === 'close') {
             const reason = (lastDisconnect.error)?.output?.statusCode;
-            console.log(`(・_・;) Connection Closed. Reason: ${reason}`);
+            console.log(`(・_°；) Connection Closed. Reason: ${reason}`);
 
-            if (reason === DisconnectReason.loggedOut) {
-                console.log("(╯°□°）╯︵ ┻━┻ Logged out. Delete auth_info and re-scan.");
-            } else if (reason === DisconnectReason.restartRequired || reason === DisconnectReason.connectionLost) {
-                console.log("(ง •_•)ง Restarting/Reconnecting...");
-                startBunty();
+            const shouldReconnect = (reason !== DisconnectReason.loggedOut);
+            
+            if (shouldReconnect) {
+                const delay = (reason === 408) ? 10000 : 5000; 
+                console.log(`(ง •_•)ง Reconnecting in ${delay/1000}s...`);
+                setTimeout(() => startBunty(), delay);
             } else {
-                startBunty();
+                console.log("(╯°□°）╯︵ ┻━┻ Logged out. AUTO-FIX: Wiping auth_info and restarting for new QR...");
+                try {
+                    // Try to clear the directory recursively
+                    if (fs.existsSync('auth_info')) {
+                        fs.rmSync('auth_info', { recursive: true, force: true });
+                    }
+                } catch (e) {
+                    console.log("❌ Auto-fix failed. Manually run: rm -rf auth_info");
+                }
+                process.exit(1); 
             }
         } else if (connection === 'open') {
             console.log('＼(≧▽≦)／ Connected! Bunty is ready.');

@@ -40,7 +40,7 @@ else
 fi
 
 # 4. Restart bot using pm2
-echo "🔄 Restarting Bunty via pm2..."
-pm2 restart Bunty || pm2 start index.js --name Bunty
+echo "🔄 Restarting Bunty via pm2 (Updating ENV)..."
+pm2 restart Bunty --update-env || pm2 start index.js --name Bunty
 
 echo "✅ Deployment Complete!"

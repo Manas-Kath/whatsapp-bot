@@ -1,10 +1,12 @@
 const db = require('../../lib/database');
+const config = require('../../config');
+const safety = require('../../lib/safety');
 
 module.exports = {
     name: "stats",
     alias: ["status", "info"],
     desc: "Bot statistics",
-    run: async ({ sock, jid }) => {
+    run: async ({ sock, jid, isSuperAdmin }) => {
         const uptime = process.uptime();
         const hrs = Math.floor(uptime / 3600);
         const mins = Math.floor((uptime % 3600) / 60);
@@ -21,7 +23,14 @@ module.exports = {
             }).join('\n');
         }
 
-        const text = `*BUNTY v5.5*\n (¬_¬) [ SYSTEM ]\n\n  • Uptime: ${hrs}h ${mins}m\n  • Commands: ${db.data.stats.cmdCount}\n  • Banned Users: ${db.data.banned.length}\n\n*THE BLACKLIST* 💀\n${bannedDisplay}`;
+        const key = config.geminiApiKey || "NONE";
+        const maskedKey = key !== "NONE" ? `${key.substring(0, 5)}...${key.substring(key.length - 4)}` : "❌ MISSING";
+
+        let text = `*BUNTY v5.5*\n (¬_¬) [ SYSTEM ]\n\n  • Uptime: ${hrs}h ${mins}m\n  • Commands: ${db.data.stats.cmdCount}\n  • Banned Users: ${db.data.banned.length}\n\n*THE BLACKLIST* 💀\n${bannedDisplay}`;
+
+        if (isSuperAdmin) {
+            text += `\n\n*DEBUG INFO* 🛠️\n  • Gemini API Key: \`${maskedKey}\` (${key.length} chars)\n  • RAM Health: ${safety.getMemoryHealth().nodeUsageMB}MB`;
+        }
 
         await sock.sendMessage(jid, { text, mentions });
     }

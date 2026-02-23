@@ -129,7 +129,13 @@ module.exports = {
 
         } catch (e) {
             console.error("Gemini Error:", e);
-            await sock.sendMessage(jid, { text: "(ノ﹏ヽ) Brain hang ho gaya mera. Phir se try kar?" });
+            let errorMsg = "(ノ﹏ヽ) Brain hang ho gaya mera. Phir se try kar?";
+            if (isSuperAdmin && e.status === 400 && e.message.includes("API key not valid")) {
+                errorMsg = `🚨 *SYSTEM ERROR: INVALID API KEY*\nCheck your .env on Termux. \`pm2 delete Bunty && pm2 start index.js --name Bunty\``;
+            } else if (isSuperAdmin) {
+                errorMsg = `❌ *AI Error:* ${e.message.substring(0, 100)}`;
+            }
+            await sock.sendMessage(jid, { text: errorMsg }, { quoted: msg });
         }
     }
 };
