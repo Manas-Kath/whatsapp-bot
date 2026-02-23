@@ -26,7 +26,7 @@ module.exports = {
         const key = config.geminiApiKey || "NONE";
         const maskedKey = key !== "NONE" ? `${key.substring(0, 5)}...${key.substring(key.length - 4)}` : "❌ MISSING";
 
-        let text = `*BUNTY v5.5*\n (¬_¬) [ SYSTEM ]\n\n  • Uptime: ${hrs}h ${mins}m\n  • Commands: ${db.data.stats.cmdCount}\n  • Banned Users: ${db.data.banned.length}\n\n*THE BLACKLIST* 💀\n${bannedDisplay}`;
+        let text = `*BUNTY v5.6*\n (¬_¬) [ SYSTEM ]\n\n  • Uptime: ${hrs}h ${mins}m\n  • Commands: ${db.data.stats.cmdCount}\n  • Banned Users: ${db.data.banned.length}\n\n*THE BLACKLIST* 💀\n${bannedDisplay}`;
 
         if (isSuperAdmin) {
             text += `\n\n*DEBUG INFO* 🛠️\n  • Gemini API Key: \`${maskedKey}\` (${key.length} chars)\n  • RAM Health: ${safety.getMemoryHealth().nodeUsageMB}MB`;

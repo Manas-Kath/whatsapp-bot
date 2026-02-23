@@ -43,7 +43,7 @@ async function startBunty() {
     
     // Always fetch the latest version to avoid decryption lag
     const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(`🔥 Bunty v5.5 - WA v${version.join('.')}${isLatest ? ' (Latest)' : ' (Outdated)'}`);
+    console.log(`🔥 Bunty v5.6 - WA v${version.join('.')}${isLatest ? ' (Latest)' : ' (Outdated)'}`);
 
     loadCommands(); 
 
@@ -100,8 +100,19 @@ async function startBunty() {
     // --- HEALTH WATCHDOG ---
     setInterval(() => {
         const health = safety.getMemoryHealth();
-        if (health.isStruggling) {
-            console.log(`⚠️ HEALTH WARNING: RSS=${health.nodeUsageMB}MB, Free=${health.freePercent.toFixed(1)}%`);
+        // Force GC if memory is over 100MB
+        if (health.nodeUsageMB > 100 && global.gc) {
+            global.gc();
+        }
+        
+        // Only log if the bot itself is getting fat (>150MB) or if RAM is critically low (<2%)
+        if (health.nodeUsageMB > 150 || health.freePercent < 2) {
+            console.log(`⚠️ HEALTH: RSS=${health.nodeUsageMB}MB, Free=${health.freePercent.toFixed(1)}%`);
+        }
+        
+        // Every 5 mins, clear group metadata cache to keep it lean
+        if (Date.now() % (300000) < 60000) {
+            metadataCache.flushAll();
         }
     }, 60000);
 

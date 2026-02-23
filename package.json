@@ -1,10 +1,10 @@
 {
-  "name": "bunty-bot-v4",
-  "version": "4.0.0",
+  "name": "bunty-bot-v5",
+  "version": "5.6.0",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js"
+    "start": "node --expose-gc --max-old-space-size=120 index.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
