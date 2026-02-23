@@ -2,6 +2,10 @@
 
 "The Bunty Project" is a high-performance WhatsApp bot optimized for low-end hardware (Samsung J7/Termux). It features a unique minimalistic "Style A" aesthetic, robust crash recovery, and advanced memory management.
 
+## 📘 Documentation
+- **GUIDE.md:** Full technical manual explaining every script and library.
+- **README.md:** Installation and usage instructions.
+
 ## Core Mandates
 - **Stability:** "Safe Mode" and "Auto-Fix" systems for 401/408 errors.
 - **Efficiency:** Strict 120MB RAM limit with manual Garbage Collection.
@@ -26,8 +30,8 @@
 - [x] **Selective Publicity (.publicity):** Broadcast messages with safety delays.
 - [x] **AI Voice-to-Text:** Transcription via Gemini.
 - [x] **Sticker Studio (.sticker):** FFmpeg-powered conversion.
+- [x] **Technical Manual:** Comprehensive GUIDE.md added.
 
 ## TODO (System Level)
-- [ ] **Android Debloat:** Strip Samsung J7 bloatware via ADB.
-- [ ] **Process Killer:** Script to kill non-Termux background apps.
-- [ ] **Swap File:** Increase Termux swap if root allows.
+- [ ] **Android Debloat:** Strip Samsung J7 bloatware via ADB (Ongoing).
+- [ ] **Swap File:** Increase Termux swap if root allows (Done).
