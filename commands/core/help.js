@@ -3,7 +3,7 @@ const config = require('../../config');
 module.exports = {
     name: "help",
     alias: ["menu", "h", "commands"],
-    desc: "Show the bot menu",
+    desc: "Bot menu",
     run: async ({ sock, jid, msg, isSuperAdmin, sender }) => {
         const { commands } = require('../../lib/handler');
         
@@ -21,31 +21,31 @@ module.exports = {
             map[cat].push(cmd);
         });
 
-        let text = `*BUNTY v5.5* (._.)\n`;
+        let text = `*BUNTY v5.6* (._.)\n`;
         text += `  • User: @${sender.split('@')[0]}\n`;
         text += `──────────────────\n`;
         
-        const emojis = { 
-            'OWNER': ' (⌐■_■)',
-            'MOD':   ' (ಠ_ಠ)',
-            'ADMIN': ' (¬_¬)',
-            'AI':    ' [ 0_0 ]',
-            'FUN':   ' (¬‿¬)',
-            'CORE':  ' ( ._.)',
-            'MISC':  ' (o_O)'
+        const style = { 
+            'OWNER': '[ OWNER ] (¬_¬)',
+            'MOD':   '[ MODERATOR ] (ಠ_ಠ)',
+            'ADMIN': '[ ADMIN ] (¬_¬)',
+            'AI':    '[ ARTIFICIAL ] (o_o)',
+            'FUN':   '[ FUN ] (¬‿¬)',
+            'CORE':  '[ SYSTEM ] (._.)',
+            'MISC':  '[ MISC ] (o_o)'
         };
 
         const sortedCategories = Object.keys(map).sort();
         
         for (const cat of sortedCategories) {
-            const emoji = emojis[cat] || ' (›_‹)';
-            text += `\n*${cat}* ${emoji}\n`;
+            const header = style[cat] || `[ ${cat} ] (._.)`;
+            text += `\n*${header}*\n`;
             text += map[cat].map(c => `  • \`.${c.name}\` : ${c.desc}`).join('\n');
             text += '\n';
         }
 
         text += `\n──────────────────\n`;
-        text += `(o^ ^o) _Tera Bhai Bunty_ (■_■¬)`;
+        text += `(._.) _Tera Bhai Bunty_ (._.)`;
 
         await sock.sendMessage(jid, { text, mentions: [sender] }, { quoted: msg });
     }
