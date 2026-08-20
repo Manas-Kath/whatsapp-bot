@@ -100,18 +100,18 @@ async function startBunty() {
     // --- HEALTH WATCHDOG ---
     setInterval(() => {
         const health = safety.getMemoryHealth();
-        // Force GC if memory is over 100MB
-        if (health.nodeUsageMB > 100 && global.gc) {
+        // Force GC if memory is over 200MB
+        if (health.nodeUsageMB > 200 && global.gc) {
             global.gc();
         }
         
-        // Only log if the bot itself is getting fat (>150MB) or if RAM is critically low (<2%)
-        if (health.nodeUsageMB > 150 || health.freePercent < 2) {
-            console.log(`⚠️ HEALTH: RSS=${health.nodeUsageMB}MB, Free=${health.freePercent.toFixed(1)}%`);
+        // Only log if process RSS exceeds 300MB
+        if (health.nodeUsageMB > 300) {
+            console.log(`⚠️ HEALTH: Process RSS=${health.nodeUsageMB}MB`);
         }
         
-        // Every 5 mins, clear group metadata cache to keep it lean
-        if (Date.now() % (300000) < 60000) {
+        // Every 10 mins, clear group metadata cache to keep it clean
+        if (Date.now() % (600000) < 60000) {
             metadataCache.flushAll();
         }
     }, 60000);
@@ -132,19 +132,63 @@ async function startBunty() {
         // Cache messages for anti-delete
         msgCache.set(key.id, msg);
 
-        // Anti-Delete Logic
+        // Anti-Delete Logic (With Media Restoration & Anti-Spam)
         if (db.data.settings.anti_delete && msg.message.protocolMessage?.type === 0) {
             const deletedKeyId = msg.message.protocolMessage.key.id;
             const oldMsg = msgCache.get(deletedKeyId);
             if (oldMsg) {
                 if (db.isHardBanned(sender)) return;
-                const content = oldMsg.message.conversation || oldMsg.message.extendedTextMessage?.text || "[Media]";
-                const victim = jidNormalizedUser(oldMsg.key.participant || oldMsg.key.remoteJid);
                 const adminJid = config.superAdminIds[0];
-                if (adminJid) {
-                    const report = `🗑️ *Deleted Message*\n👤 @${victim.split('@')[0]}\n📝 ${content}`;
+                if (!adminJid) return;
+
+                const victim = jidNormalizedUser(oldMsg.key.participant || oldMsg.key.remoteJid);
+                
+                let oType = Object.keys(oldMsg.message || {})[0];
+                if (oType === 'ephemeralMessage' || oType === 'viewOnceMessage' || oType === 'viewOnceMessageV2') {
+                    oldMsg.message = oldMsg.message[oType].message;
+                    oType = Object.keys(oldMsg.message || {})[0];
+                }
+
+                const textContent = oldMsg.message?.conversation || 
+                                  oldMsg.message?.extendedTextMessage?.text || 
+                                  oldMsg.message?.imageMessage?.caption || 
+                                  oldMsg.message?.videoMessage?.caption || '';
+
+                const isMedia = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(oType);
+
+                if (isMedia) {
+                    try {
+                        const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+                        const buffer = await downloadMediaMessage(oldMsg, 'buffer', {});
+                        if (buffer && buffer.length > 0) {
+                            const caption = `🗑️ *Deleted Media*\n👤 @${victim.split('@')[0]}${textContent ? `\n📝 ${textContent}` : ''}`;
+                            
+                            if (oType === 'imageMessage') {
+                                await sock.sendMessage(adminJid, { image: buffer, caption, mentions: [victim] });
+                            } else if (oType === 'audioMessage') {
+                                await sock.sendMessage(adminJid, { text: caption, mentions: [victim] });
+                                await sock.sendMessage(adminJid, { audio: buffer, ptt: oldMsg.message.audioMessage?.ptt || false });
+                            } else if (oType === 'stickerMessage') {
+                                await sock.sendMessage(adminJid, { text: caption, mentions: [victim] });
+                                await sock.sendMessage(adminJid, { sticker: buffer });
+                            } else if (oType === 'videoMessage') {
+                                await sock.sendMessage(adminJid, { video: buffer, caption, mentions: [victim] });
+                            } else if (oType === 'documentMessage') {
+                                await sock.sendMessage(adminJid, { document: buffer, fileName: oldMsg.message.documentMessage?.fileName || 'file', caption, mentions: [victim] });
+                            }
+                            return;
+                        }
+                    } catch (e) {
+                        // Silent fallback on download fail
+                    }
+                }
+
+                // If pure text message exists
+                if (textContent && textContent.trim().length > 0) {
+                    const report = `🗑️ *Deleted Message*\n👤 @${victim.split('@')[0]}\n📝 ${textContent}`;
                     await sock.sendMessage(adminJid, { text: report, mentions: [victim] });
                 }
+                // (Blank media without downloadable content is ignored to prevent spam)
             }
             return;
         }
