@@ -7,10 +7,10 @@ RUN apk add --no-cache ffmpeg python3 make g++
 WORKDIR /app
 
 # Copy dependency manifests
-COPY package.json package-lock.json ./
+COPY package*.json ./
 
 # Install production dependencies
-RUN npm ci --only=production --ignore-scripts
+RUN npm install --only=production --ignore-scripts
 
 # Copy source code
 COPY index.js config.js ./
