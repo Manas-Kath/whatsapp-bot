@@ -12,28 +12,36 @@ const cooldowns = new NodeCache({ stdTTL: 10 });
 
 let genAI;
 let model;
+let currentModelName = config.geminiModel || "gemini-2.5-flash";
 
-try {
-    genAI = new GoogleGenerativeAI(config.geminiApiKey);
+const SYSTEM_INSTRUCTION = `
+    ROLE: You are Bunty v5.5, a witty Indian guy on WhatsApp.
+    PERSONALITY: Casual, Hinglish, witty, and helpful.
+    BUNTY RULES: 
+    - Keep replies short (max 40 words).
+    - If audio is provided, transcribe or summarize it creatively.
+    - Use slang like 'vibe', 'scene', 'gazab'.
+`;
 
-    model = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash", 
-        systemInstruction: `
-            ROLE: You are Bunty v5.5, a witty Indian guy on WhatsApp.
-            PERSONALITY: Casual, Hinglish, witty, and helpful.
-            BUNTY RULES: 
-            - Keep replies short (max 40 words).
-            - If audio is provided, transcribe or summarize it creatively.
-            - Use slang like 'vibe', 'scene', 'gazab'.
-        `,
+function createModelInstance(modelName) {
+    if (!genAI || !config.geminiApiKey) return null;
+    return genAI.getGenerativeModel({
+        model: modelName, 
+        systemInstruction: SYSTEM_INSTRUCTION,
         generationConfig: {
             temperature: 1.0, 
             topP: 0.95,
             maxOutputTokens: 250,
         }
     });
+}
 
-    console.log("🔥 Bunty AI (2.0-Flash) Brain Initialized");
+try {
+    if (config.geminiApiKey) {
+        genAI = new GoogleGenerativeAI(config.geminiApiKey);
+        model = createModelInstance(currentModelName);
+        console.log(`🔥 Bunty AI (${currentModelName}) Brain Initialized`);
+    }
 } catch (e) {
     console.error("AI Initialization Failed:", e);
 }
@@ -129,9 +137,45 @@ module.exports = {
 
         } catch (e) {
             console.error("Gemini Error:", e);
+
+            // Dynamic model fallback on 404 / deprecated model names
+            if (e.status === 404 || e.message?.includes('not found') || e.message?.includes('no longer available')) {
+                const fallbackList = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"];
+                for (const fbModel of fallbackList) {
+                    if (fbModel !== currentModelName) {
+                        try {
+                            console.log(`[AI FALLBACK] Retrying with model: ${fbModel}`);
+                            currentModelName = fbModel;
+                            model = createModelInstance(fbModel);
+                            if (!model) break;
+
+                            let fbText = "";
+                            if (mediaData) {
+                                const result = await model.generateContent([
+                                    statusContext,
+                                    promptText || "Analyze this.",
+                                    { inlineData: { data: mediaData, mimeType } }
+                                ]);
+                                fbText = result.response.text();
+                            } else {
+                                const chat = model.startChat({ history });
+                                const result = await chat.sendMessage(`${statusContext}\n${promptText || "Yo"}`);
+                                fbText = result.response.text();
+                                history.push({ role: "user", parts: [{ text: promptText || "Yo" }] });
+                                history.push({ role: "model", parts: [{ text: fbText }] });
+                                memory.set(jid, history);
+                            }
+                            return sock.sendMessage(jid, { text: `(＾▽＾) ${cleanResponse(fbText)}` }, { quoted: msg });
+                        } catch (fbErr) {
+                            console.error(`Fallback ${fbModel} failed:`, fbErr.message);
+                        }
+                    }
+                }
+            }
+
             let errorMsg = "(ノ﹏ヽ) Brain hang ho gaya mera. Phir se try kar?";
             if (isSuperAdmin && e.status === 400 && e.message.includes("API key not valid")) {
-                errorMsg = `🚨 *SYSTEM ERROR: INVALID API KEY*\nCheck your .env on Termux. \`pm2 delete Bunty && pm2 start index.js --name Bunty\``;
+                errorMsg = `🚨 *SYSTEM ERROR: INVALID API KEY*\nCheck your .env file credentials.`;
             } else if (isSuperAdmin) {
                 errorMsg = `❌ *AI Error:* ${e.message.substring(0, 100)}`;
             }
