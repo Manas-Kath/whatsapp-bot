@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  bunty:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bunty-bot
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - MQTT_BROKER_URL=${MQTT_BROKER_URL:-mqtt://192.168.1.90:1883}
+    volumes:
+      - ./auth_info:/app/auth_info
+      - ./database.json:/app/database.json
+      - ./logs.txt:/app/logs.txt
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 128M

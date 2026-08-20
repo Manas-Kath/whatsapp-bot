@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  bunty:
+    build:
+      context: https://github.com/Manas-Kath/whatsapp-bot.git#main
+      dockerfile: Dockerfile
+    container_name: bunty-bot
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - BOT_PREFIX=${BOT_PREFIX:-.}
+      - SUPER_ADMIN_IDS=${SUPER_ADMIN_IDS}
+      - MQTT_BROKER_URL=${MQTT_BROKER_URL:-mqtt://192.168.1.90:1883}
+    volumes:
+      - /DATA/AppData/bunty/auth_info:/app/auth_info
+      - /DATA/AppData/bunty/database.json:/app/database.json
+      - /DATA/AppData/bunty/logs.txt:/app/logs.txt
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+        reservations:
+          memory: 128M

@@ -1,0 +1,10 @@
+node_modules
+auth_info
+database.temp.json
+safety.json
+logs.txt
+.git
+.gitignore
+deploy.sh
+*.md
+docker/
