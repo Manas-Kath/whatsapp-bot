@@ -12,7 +12,7 @@ const cooldowns = new NodeCache({ stdTTL: 10 });
 
 let genAI;
 let model;
-let currentModelName = config.geminiModel || "gemini-1.5-flash";
+let currentModelName = config.geminiModel || "gemini-3.1-flash-lite";
 
 const SYSTEM_INSTRUCTION = `
     ROLE: You are Bunty v5.5, a witty Indian guy on WhatsApp.
@@ -146,8 +146,8 @@ module.exports = {
                                       e.message?.includes('Too Many Requests');
 
             if (isQuotaOrNotFound) {
-                // High-quota free models: 1.5-flash (1500 RPD), 1.5-flash-8b (1500 RPD), 1.5-pro (50 RPD)
-                const fallbackList = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"];
+                // Fallback chain ordered by quota (RPD): 3.1-flash-lite (500) > 3.5-flash-lite (500) > 2.5-flash (20)
+                const fallbackList = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash-lite"];
                 for (const fbModel of fallbackList) {
                     if (fbModel !== currentModelName) {
                         try {

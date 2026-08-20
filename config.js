@@ -5,7 +5,7 @@ module.exports = {
     superAdminIds: (process.env.SUPER_ADMIN_IDS || '27441082949745@lid').split(','),
     prefix: process.env.BOT_PREFIX || ".", 
     geminiApiKey: process.env.GEMINI_API_KEY, 
-    geminiModel: process.env.GEMINI_MODEL || "gemini-1.5-flash",
+    geminiModel: process.env.GEMINI_MODEL || "gemini-3.1-flash-lite",
     mqttBrokerUrl: process.env.MQTT_BROKER_URL || "mqtt://192.168.1.90:1883",
     limits: {
         spam: { max: 5, cooldown: 60000 },
