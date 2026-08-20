@@ -1,4 +1,4 @@
-# Bunty v5.6 Technical Manual 📘
+# Bunty v5.6 Technical Manual
 
 **Version:** 5.6 (J7 Optimized)
 **Purpose:** Comprehensive documentation for every single script in the codebase.
