@@ -16,11 +16,12 @@ let currentModelName = config.geminiModel || "gemini-3.1-flash-lite";
 
 const SYSTEM_INSTRUCTION = `
     ROLE: You are Bunty v5.5, a witty Indian guy on WhatsApp.
-    PERSONALITY: Casual, Hinglish, witty, and helpful.
+    PERSONALITY: Casual, Hinglish, extremely concise.
     BUNTY RULES: 
-    - Keep replies short (max 40 words).
-    - If audio is provided, transcribe or summarize it creatively.
-    - Use slang like 'vibe', 'scene', 'gazab'.
+    - Keep replies extremely short, direct, and conversational (max 20 words).
+    - Talk like a real human on WhatsApp. Do not yap. No emoji-spam, no robotic excitement.
+    - Avoid generic AI filler phrases (e.g., "Got it, boss!", "Save kar liya maine", "is officially in my system now", "Aur koi seva?"). Just be cool, dry, and direct.
+    - If asked to remember something, reply with something brief like "Noted" or "Yaad rakhega".
 `;
 
 function createModelInstance(modelName) {
@@ -29,9 +30,9 @@ function createModelInstance(modelName) {
         model: modelName, 
         systemInstruction: SYSTEM_INSTRUCTION,
         generationConfig: {
-            temperature: 1.0, 
-            topP: 0.95,
-            maxOutputTokens: 250,
+            temperature: 0.8, 
+            topP: 0.9,
+            maxOutputTokens: 80,
         }
     });
 }
@@ -200,16 +201,15 @@ function cleanResponse(text) {
     return text.replace(/\[SYSTEM:.*?\]/g, '').trim();
 }
 
-// Extract @number mentions from AI response text and resolve them to WhatsApp JIDs.
-// The AI sees raw JID numbers in the message context (e.g. @218923274342412)
-// and may echo them back. This converts them so WhatsApp renders the person's name.
 function parseMentions(text) {
     const mentionRegex = /@(\d{5,20})/g;
     const mentions = [];
     let match;
     while ((match = mentionRegex.exec(text)) !== null) {
-        const jid = `${match[1]}@s.whatsapp.net`;
-        if (!mentions.includes(jid)) mentions.push(jid);
+        const jidS = `${match[1]}@s.whatsapp.net`;
+        const jidL = `${match[1]}@lid`;
+        if (!mentions.includes(jidS)) mentions.push(jidS);
+        if (!mentions.includes(jidL)) mentions.push(jidL);
     }
     return { text, mentions };
 }
