@@ -12,7 +12,7 @@ const cooldowns = new NodeCache({ stdTTL: 10 });
 
 let genAI;
 let model;
-let currentModelName = config.geminiModel || "gemini-2.5-flash";
+let currentModelName = config.geminiModel || "gemini-1.5-flash";
 
 const SYSTEM_INSTRUCTION = `
     ROLE: You are Bunty v5.5, a witty Indian guy on WhatsApp.
@@ -138,13 +138,20 @@ module.exports = {
         } catch (e) {
             console.error("Gemini Error:", e);
 
-            // Dynamic model fallback on 404 / deprecated model names
-            if (e.status === 404 || e.message?.includes('not found') || e.message?.includes('no longer available')) {
-                const fallbackList = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-1.5-pro"];
+            // Dynamic model fallback on 404 (not found) or 429 (rate limit / quota exceeded)
+            const isQuotaOrNotFound = e.status === 404 || e.status === 429 || 
+                                      e.message?.includes('not found') || 
+                                      e.message?.includes('no longer available') ||
+                                      e.message?.includes('Quota exceeded') ||
+                                      e.message?.includes('Too Many Requests');
+
+            if (isQuotaOrNotFound) {
+                // High-quota free models: 1.5-flash (1500 RPD), 1.5-flash-8b (1500 RPD), 1.5-pro (50 RPD)
+                const fallbackList = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"];
                 for (const fbModel of fallbackList) {
                     if (fbModel !== currentModelName) {
                         try {
-                            console.log(`[AI FALLBACK] Retrying with model: ${fbModel}`);
+                            console.log(`[AI FALLBACK] Quota/Model fail on ${currentModelName}. Retrying with: ${fbModel}`);
                             currentModelName = fbModel;
                             model = createModelInstance(fbModel);
                             if (!model) break;
@@ -174,7 +181,9 @@ module.exports = {
             }
 
             let errorMsg = "(ノ﹏ヽ) Brain hang ho gaya mera. Phir se try kar?";
-            if (isSuperAdmin && e.status === 400 && e.message.includes("API key not valid")) {
+            if (e.status === 429 || e.message?.includes("Quota exceeded")) {
+                errorMsg = `⏳ *Quota Exceeded:* Gemini Free Tier limit reached for model (${currentModelName}). Please wait a minute or set \`GEMINI_MODEL=gemini-1.5-flash\` in your .env.`;
+            } else if (isSuperAdmin && e.status === 400 && e.message.includes("API key not valid")) {
                 errorMsg = `🚨 *SYSTEM ERROR: INVALID API KEY*\nCheck your .env file credentials.`;
             } else if (isSuperAdmin) {
                 errorMsg = `❌ *AI Error:* ${e.message.substring(0, 100)}`;
