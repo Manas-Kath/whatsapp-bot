@@ -133,7 +133,9 @@ module.exports = {
                 memory.set(jid, history);
             }
 
-            await sock.sendMessage(jid, { text: `(＾▽＾) ${cleanResponse(responseText)}` }, { quoted: msg });
+            const cleanedResponse = cleanResponse(responseText);
+            const { text: finalText, mentions } = parseMentions(cleanedResponse);
+            await sock.sendMessage(jid, { text: `(＾▽＾) ${finalText}`, mentions }, { quoted: msg });
 
         } catch (e) {
             console.error("Gemini Error:", e);
@@ -196,4 +198,18 @@ module.exports = {
 function cleanResponse(text) {
     if (!text) return "";
     return text.replace(/\[SYSTEM:.*?\]/g, '').trim();
+}
+
+// Extract @number mentions from AI response text and resolve them to WhatsApp JIDs.
+// The AI sees raw JID numbers in the message context (e.g. @218923274342412)
+// and may echo them back. This converts them so WhatsApp renders the person's name.
+function parseMentions(text) {
+    const mentionRegex = /@(\d{5,20})/g;
+    const mentions = [];
+    let match;
+    while ((match = mentionRegex.exec(text)) !== null) {
+        const jid = `${match[1]}@s.whatsapp.net`;
+        if (!mentions.includes(jid)) mentions.push(jid);
+    }
+    return { text, mentions };
 }
