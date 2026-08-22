@@ -16,7 +16,7 @@ services:
     volumes:
       - /DATA/AppData/bunty/auth_info:/app/auth_info
       - /DATA/AppData/bunty/database.json:/app/database.json
-      - /DATA/AppData/bunty/logs.txt:/app/logs.txt
+      - /DATA/AppData/bunty/logs:/app/logs
     deploy:
       resources:
         limits:

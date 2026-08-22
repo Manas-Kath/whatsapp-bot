@@ -15,7 +15,7 @@ services:
     volumes:
       - ./auth_info:/app/auth_info
       - ./database.json:/app/database.json
-      - ./logs.txt:/app/logs.txt
+      - ./logs:/app/logs
     deploy:
       resources:
         limits:

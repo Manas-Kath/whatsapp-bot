@@ -15,8 +15,66 @@ const { loadCommands, handleCommand } = require('./lib/handler');
 const config = require('./config');
 const safety = require('./lib/safety');
 
-// RAM CACHE for anti-delete and performance
-const msgCache = new NodeCache({ stdTTL: 3600, checkperiod: 600, maxKeys: 1000 });
+// RAM CACHE for anti-delete and performance. Keep the cap strict: high-volume
+// chats can receive more than 1,000 messages before the one-hour TTL expires.
+const MESSAGE_CACHE_MAX_KEYS = 1000;
+const MESSAGE_CACHE_EVICTION_BATCH = 100;
+const msgCache = new NodeCache({
+    stdTTL: 3600,
+    checkperiod: 600,
+    maxKeys: MESSAGE_CACHE_MAX_KEYS
+});
+const msgCacheKeyOrder = new Map();
+
+function evictOldCachedMessages(count = MESSAGE_CACHE_EVICTION_BATCH) {
+    let evicted = 0;
+    while (evicted < count && msgCacheKeyOrder.size) {
+        const oldestKey = msgCacheKeyOrder.keys().next().value;
+        msgCacheKeyOrder.delete(oldestKey);
+        msgCache.del(oldestKey);
+        evicted++;
+    }
+    return evicted;
+}
+
+function cacheMessage(key, message) {
+    if (!key) return false;
+
+    // Evict before calling NodeCache#set, because maxKeys throws ECACHEFULL.
+    // Map insertion order gives us true FIFO eviction instead of relying on the
+    // implementation order of NodeCache's internal object.
+    if (!msgCache.has(key) && msgCache.getStats().keys >= MESSAGE_CACHE_MAX_KEYS) {
+        evictOldCachedMessages();
+    }
+
+    try {
+        msgCache.set(key, message);
+        msgCacheKeyOrder.delete(key);
+        msgCacheKeyOrder.set(key, true);
+        return true;
+    } catch (err) {
+        // node-cache reports this as `errorcode`; accept `code` too for
+        // compatibility with other versions.
+        if (err.errorcode === 'ECACHEFULL' || err.code === 'ECACHEFULL') {
+            evictOldCachedMessages();
+            try {
+                msgCache.set(key, message);
+                msgCacheKeyOrder.delete(key);
+                msgCacheKeyOrder.set(key, true);
+                return true;
+            } catch (retryErr) {
+                console.error('Unable to cache message after eviction:', retryErr);
+                return false;
+            }
+        }
+
+        console.error('Unable to cache message:', err);
+        return false;
+    }
+}
+
+msgCache.on('expired', key => msgCacheKeyOrder.delete(key));
+
 const msgRetryCounterCache = new NodeCache();
 const metadataCache = new NodeCache({ stdTTL: 300, checkperiod: 60 }); 
 
@@ -130,7 +188,7 @@ async function startBunty() {
         }
         
         // Cache messages for anti-delete
-        msgCache.set(key.id, msg);
+        cacheMessage(key.id, msg);
 
         // Anti-Delete Logic (With Media Restoration & Anti-Spam)
         if (db.data.settings.anti_delete && msg.message.protocolMessage?.type === 0) {
