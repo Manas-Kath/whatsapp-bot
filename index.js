@@ -14,6 +14,7 @@ const db = require('./lib/database');
 const { loadCommands, handleCommand } = require('./lib/handler');
 const config = require('./config');
 const safety = require('./lib/safety');
+const { buildMentionDirectory, replaceIncomingMentions } = require('./lib/mentions');
 
 // RAM CACHE for anti-delete and performance. Keep the cap strict: high-volume
 // chats can receive more than 1,000 messages before the one-hour TTL expires.
@@ -77,6 +78,15 @@ msgCache.on('expired', key => msgCacheKeyOrder.delete(key));
 
 const msgRetryCounterCache = new NodeCache();
 const metadataCache = new NodeCache({ stdTTL: 300, checkperiod: 60 }); 
+
+async function getGroupMetadata(sock, jid) {
+    let metadata = metadataCache.get(jid);
+    if (!metadata) {
+        metadata = await sock.groupMetadata(jid);
+        metadataCache.set(jid, metadata);
+    }
+    return metadata;
+}
 
 // GLOBAL ERROR HANDLING
 process.on('uncaughtException', (err) => {
@@ -279,11 +289,7 @@ async function startBunty() {
         let isAdmin = false;
         if (isGroup && isCmd) {
             try {
-                let meta = metadataCache.get(jid);
-                if (!meta) {
-                    meta = await sock.groupMetadata(jid);
-                    metadataCache.set(jid, meta);
-                }
+                const meta = await getGroupMetadata(sock, jid);
                 const participant = meta.participants.find(p => 
                     jidNormalizedUser(p.id) === sender || (p.lid && jidNormalizedUser(p.lid) === sender)
                 );
@@ -335,14 +341,33 @@ async function startBunty() {
             if (isMentioned || isReplyToBot) {
                 const aiCmd = require('./commands/ai/ask');
                 let prompt = body;
-                if (isMentioned) prompt = prompt.replace(/@\d+/g, '').trim();
+                if (isMentioned) {
+                    const botMentionIds = [botId, botLid]
+                        .filter(Boolean)
+                        .map(id => id.split('@')[0]);
+                    for (const identifier of botMentionIds) {
+                        prompt = prompt.replace(new RegExp(`@${identifier}\\b`, 'g'), '');
+                    }
+                    prompt = prompt.trim();
+                }
                 if (!prompt && ctx.quoted) {
                     const qType = Object.keys(ctx.quoted.message)[0];
                     prompt = ctx.quoted.message.conversation || ctx.quoted.message.extendedTextMessage?.text || 
                              ctx.quoted.message[qType]?.caption || "Explain this.";
                 }
                 if (!prompt) prompt = "Yo";
-                await aiCmd.run({ ...ctx, text: prompt });
+
+                let mentionDirectory = [];
+                if (isGroup) {
+                    try {
+                        mentionDirectory = buildMentionDirectory(await getGroupMetadata(sock, jid));
+                        prompt = replaceIncomingMentions(prompt, mentionDirectory);
+                    } catch (error) {
+                        console.warn('Could not load group members for mention resolution:', error.message);
+                    }
+                }
+
+                await aiCmd.run({ ...ctx, text: prompt, mentionDirectory });
             }
         }
     });

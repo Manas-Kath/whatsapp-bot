@@ -7,6 +7,12 @@ const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const {
+    buildMentionDirectory,
+    replaceIncomingMentions,
+    mentionInstruction,
+    resolveGeneratedMentions
+} = require('../../lib/mentions');
 
 const cooldowns = new NodeCache({ stdTTL: 10 }); 
 
@@ -51,7 +57,7 @@ module.exports = {
     name: "ask",
     alias: ["bunty", "ai"],
     desc: "Chat with Bunty (Supports Image & Voice Notes)",
-    run: async ({ sock, jid, msg, text, quoted, sender, isSuperAdmin }) => {
+    run: async ({ sock, jid, msg, text, quoted, sender, isSuperAdmin, mentionDirectory = [] }) => {
         if (!model) return sock.sendMessage(jid, { text: "⚠️ Bunty is sleeping right now." });
 
         if (text === 'reset' || text === 'clear') {
@@ -63,6 +69,18 @@ module.exports = {
         cooldowns.set(sender, true);
 
         let promptText = text;
+
+        // `.ask @member ...` goes through the command handler rather than
+        // index.js's mention-trigger path, so load its directory here too.
+        if (!mentionDirectory.length && jid.endsWith('@g.us')) {
+            try {
+                mentionDirectory = buildMentionDirectory(await sock.groupMetadata(jid));
+                promptText = replaceIncomingMentions(promptText, mentionDirectory);
+            } catch (error) {
+                console.warn('Could not load group members for mention resolution:', error.message);
+            }
+        }
+
         let mediaData = null;
         let mimeType = "";
 
@@ -110,6 +128,8 @@ module.exports = {
         }
 
         const statusContext = isSuperAdmin ? "[SYSTEM: BOSS user]" : "[SYSTEM: Regular user]";
+        const groupMentionContext = mentionInstruction(mentionDirectory);
+        const aiPrompt = [statusContext, groupMentionContext, promptText || "Yo"].filter(Boolean).join('\n');
         let history = memory.get(jid);
 
         try {
@@ -119,6 +139,7 @@ module.exports = {
                 // Multi-modal call
                 const result = await model.generateContent([
                     statusContext,
+                    groupMentionContext,
                     promptText || "Analyze this.",
                     { inlineData: { data: mediaData, mimeType } }
                 ]);
@@ -126,7 +147,7 @@ module.exports = {
             } else {
                 // Chat history call
                 const chat = model.startChat({ history });
-                const result = await chat.sendMessage(`${statusContext}\n${promptText || "Yo"}`);
+                const result = await chat.sendMessage(aiPrompt);
                 responseText = result.response.text();
 
                 history.push({ role: "user", parts: [{ text: promptText || "Yo" }] });
@@ -135,7 +156,7 @@ module.exports = {
             }
 
             const cleanedResponse = cleanResponse(responseText);
-            const { text: finalText, mentions } = parseMentions(cleanedResponse);
+            const { text: finalText, mentions } = resolveGeneratedMentions(cleanedResponse, mentionDirectory);
             await sock.sendMessage(jid, { text: `(＾▽＾) ${finalText}`, mentions }, { quoted: msg });
 
         } catch (e) {
@@ -163,19 +184,24 @@ module.exports = {
                             if (mediaData) {
                                 const result = await model.generateContent([
                                     statusContext,
+                                    groupMentionContext,
                                     promptText || "Analyze this.",
                                     { inlineData: { data: mediaData, mimeType } }
                                 ]);
                                 fbText = result.response.text();
                             } else {
                                 const chat = model.startChat({ history });
-                                const result = await chat.sendMessage(`${statusContext}\n${promptText || "Yo"}`);
+                                const result = await chat.sendMessage(aiPrompt);
                                 fbText = result.response.text();
                                 history.push({ role: "user", parts: [{ text: promptText || "Yo" }] });
                                 history.push({ role: "model", parts: [{ text: fbText }] });
                                 memory.set(jid, history);
                             }
-                            return sock.sendMessage(jid, { text: `(＾▽＾) ${cleanResponse(fbText)}` }, { quoted: msg });
+                            const resolvedFallback = resolveGeneratedMentions(cleanResponse(fbText), mentionDirectory);
+                            return sock.sendMessage(jid, {
+                                text: `(＾▽＾) ${resolvedFallback.text}`,
+                                mentions: resolvedFallback.mentions
+                            }, { quoted: msg });
                         } catch (fbErr) {
                             console.error(`Fallback ${fbModel} failed:`, fbErr.message);
                         }
@@ -199,17 +225,4 @@ module.exports = {
 function cleanResponse(text) {
     if (!text) return "";
     return text.replace(/\[SYSTEM:.*?\]/g, '').trim();
-}
-
-function parseMentions(text) {
-    const mentionRegex = /@(\d{5,20})/g;
-    const mentions = [];
-    let match;
-    while ((match = mentionRegex.exec(text)) !== null) {
-        const jidS = `${match[1]}@s.whatsapp.net`;
-        const jidL = `${match[1]}@lid`;
-        if (!mentions.includes(jidS)) mentions.push(jidS);
-        if (!mentions.includes(jidL)) mentions.push(jidL);
-    }
-    return { text, mentions };
 }
