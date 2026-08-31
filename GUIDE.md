@@ -84,6 +84,7 @@
 
 ### 📂 `commands/admin/` (Boss Tools)
 
+- **`antilink.js`**: Per-group link protection. Automatically deletes the message on the 1st link (strike 1) and removes the offender from the group on the 2nd link (strike 2). Admins and whitelisted members are exempt.
 - **`ban.js` / `unban.js`**: Adds/Removes users from `database.json`. Banned users are ignored by `handler.js`.
 - **`hardban.js`**: A more aggressive ban. If a hardbanned user sends a message, the bot attempts to *delete* their message immediately (Anti-Spam).
 - **`hidetag.js`**: Sends a message that *looks* empty but secretly mentions everyone in the group. Used for announcements without the ugly list of names.

@@ -7,7 +7,7 @@ module.exports = {
     run: async ({ sock, jid, msg, isSuperAdmin, sender }) => {
         const { commands } = require('../../lib/handler');
         
-        const modCommands = ['ban', 'unban', 'hidetag', 'tagall', 'stats'];
+        const modCommands = ['ban', 'unban', 'hidetag', 'tagall', 'stats', 'antilink'];
         const ownerCommands = ['hardban', 'set', 'publicity', 'safety'];
 
         const map = {};

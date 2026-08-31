@@ -37,7 +37,7 @@ fi
 # 4. Initialize database.json if missing
 if [ ! -f "database.json" ]; then
     echo "[+] Creating default database.json..."
-    echo '{"users":{},"stats":{"cmdCount":0},"banned":[],"hardBanned":[],"settings":{"ai_enabled":true,"public_mode":true,"auto_read":false}}' > database.json
+    echo '{"users":{},"stats":{"cmdCount":0},"banned":[],"hardBanned":[],"settings":{"ai_enabled":true,"public_mode":true,"auto_read":true,"anti_delete":true},"groups":{}}' > database.json
 fi
 
 # 5. Build and run Docker Container

@@ -15,6 +15,7 @@ const { loadCommands, handleCommand } = require('./lib/handler');
 const config = require('./config');
 const safety = require('./lib/safety');
 const { buildMentionDirectory, replaceIncomingMentions } = require('./lib/mentions');
+const { containsLink } = require('./lib/utils');
 
 // RAM CACHE for anti-delete and performance. Keep the cap strict: high-volume
 // chats can receive more than 1,000 messages before the one-hour TTL expires.
@@ -194,7 +195,9 @@ async function startBunty() {
         
         // AUTO READ
         if (db.data.settings.auto_read) {
-            await sock.readMessages([key]);
+            try {
+                await sock.readMessages([key]);
+            } catch (e) {}
         }
         
         // Cache messages for anti-delete
@@ -287,7 +290,7 @@ async function startBunty() {
         if (!body && !isCmd) return;
 
         let isAdmin = false;
-        if (isGroup && isCmd) {
+        if (isGroup) {
             try {
                 const meta = await getGroupMetadata(sock, jid);
                 const participant = meta.participants.find(p => 
@@ -295,6 +298,41 @@ async function startBunty() {
                 );
                 isAdmin = participant && (participant.admin === 'admin' || participant.admin === 'superadmin');
             } catch (e) {}
+        }
+
+        // --- 🔗 PER-GROUP ANTI-LINK ENFORCER ---
+        if (isGroup && db.isAntilinkEnabled(jid)) {
+            const isExempt = isAdmin || isSuperAdmin || db.isLinkWhitelisted(jid, sender);
+            if (!isExempt && containsLink(body)) {
+                // Strike detected: Delete offending message
+                try {
+                    await sock.sendMessage(jid, { delete: key });
+                } catch (e) {}
+
+                const warningCount = db.addLinkWarning(jid, sender);
+
+                if (warningCount === 1) {
+                    const warnText = `(¬_¬) [ ANTILINK ]\n\n` +
+                                     `⚠️ Warning [ 1 / 2 ] for @${sender.split('@')[0]}\n` +
+                                     `• Links are prohibited in this group.\n` +
+                                     `• Sending another link will result in automatic removal.`;
+                    await sock.sendMessage(jid, { text: warnText, mentions: [sender] });
+                } else if (warningCount >= 2) {
+                    try {
+                        await sock.groupParticipantsUpdate(jid, [sender], 'remove');
+                        const kickText = `(¬_¬) [ ANTILINK ]\n\n` +
+                                         `🚫 @${sender.split('@')[0]} has been removed for sending links (2/2 strikes).`;
+                        await sock.sendMessage(jid, { text: kickText, mentions: [sender] });
+                        db.resetLinkWarnings(jid, sender);
+                    } catch (e) {
+                        const failText = `(¬_¬) [ ANTILINK ]\n\n` +
+                                         `⚠️ @${sender.split('@')[0]} reached strike 2/2 for sending links.\n` +
+                                         `• (Failed to remove user: bot needs Admin privileges).`;
+                        await sock.sendMessage(jid, { text: failText, mentions: [sender] });
+                    }
+                }
+                return; // Stop processing further commands or AI for this link message
+            }
         }
 
         // --- ROBUST QUOTED MESSAGE EXTRACTION ---

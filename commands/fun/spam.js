@@ -4,7 +4,7 @@ const { jidNormalizedUser } = require('@whiskeysockets/baileys');
 module.exports = {
     name: "spam",
     alias: ["bomb", "annoy"],
-    desc: "Spam a user (Limit: 5 for all, 50 for BOSS)",
+    desc: "Spam a user (Limit: 5)",
     run: async ({ sock, jid, msg, args, isSuperAdmin, sender }) => {
         // 1. Get Target (Tag, Reply, or direct JID)
         const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || 

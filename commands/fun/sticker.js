@@ -8,7 +8,7 @@ const safety = require('../../lib/safety');
 module.exports = {
     name: "sticker",
     alias: ["s", "stiker"],
-    desc: "Convert image or video to sticker (Termux Optimized)",
+    desc: "Convert image or video to sticker",
     category: "fun",
     run: async ({ sock, jid, msg, quoted, sender, isSuperAdmin }) => {
         // 🛡️ MEDIA RATE LIMIT (Skip for SuperAdmin)
@@ -22,7 +22,7 @@ module.exports = {
         const targetMsg = (msg.message?.imageMessage || msg.message?.videoMessage) ? msg : quoted;
         
         if (!targetMsg || (!targetMsg.message?.imageMessage && !targetMsg.message?.videoMessage)) {
-            return sock.sendMessage(jid, { text: "⚠️ *Missing Media:* Reply to an image or short video with `.sticker`" });
+            return sock.sendMessage(jid, { text: "*Missing Media:* Reply to an image or short video with `.sticker`" });
         }
 
         const isVideo = !!targetMsg.message.videoMessage;
@@ -31,7 +31,7 @@ module.exports = {
         const outputPath = path.join(tempDir, `output_${Date.now()}.webp`);
 
         try {
-            await sock.sendMessage(jid, { text: "⌛ *Processing your sticker...*" });
+            await sock.sendMessage(jid, { text: "*Processing your sticker...*" });
 
             // 1. Download Media
             const buffer = await downloadMediaMessage(targetMsg, 'buffer', {});
@@ -68,7 +68,7 @@ module.exports = {
 
         } catch (err) {
             console.error("Sticker Error:", err);
-            await sock.sendMessage(jid, { text: `❌ *Error:* Failed to create sticker. Make sure 'ffmpeg' is installed (pkg install ffmpeg).` });
+            await sock.sendMessage(jid, { text: `*Error:* Failed to create sticker. Make sure 'ffmpeg' is installed (pkg install ffmpeg).` });
         } finally {
             // Cleanup (Survive the crash)
             if (fs.existsSync(inputPath)) fs.unlinkSync(inputPath);

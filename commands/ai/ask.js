@@ -47,7 +47,7 @@ try {
     if (config.geminiApiKey) {
         genAI = new GoogleGenerativeAI(config.geminiApiKey);
         model = createModelInstance(currentModelName);
-        console.log(`🔥 Bunty AI (${currentModelName}) Brain Initialized`);
+        console.log(`Bunty AI (${currentModelName}) Brain Initialized`);
     }
 } catch (e) {
     console.error("AI Initialization Failed:", e);
@@ -56,13 +56,13 @@ try {
 module.exports = {
     name: "ask",
     alias: ["bunty", "ai"],
-    desc: "Chat with Bunty (Supports Image & Voice Notes)",
+    desc: "Chat with Bunty",
     run: async ({ sock, jid, msg, text, quoted, sender, isSuperAdmin, mentionDirectory = [] }) => {
-        if (!model) return sock.sendMessage(jid, { text: "⚠️ Bunty is sleeping right now." });
+        if (!model) return sock.sendMessage(jid, { text: "Bunty is sleeping right now." });
 
         if (text === 'reset' || text === 'clear') {
             memory.del(jid);
-            return sock.sendMessage(jid, { text: "🚮 *Memory Cleared.*" });
+            return sock.sendMessage(jid, { text: "*Memory Cleared.*" });
         }
 
         if (cooldowns.has(sender)) return;
@@ -211,11 +211,11 @@ module.exports = {
 
             let errorMsg = "(ノ﹏ヽ) Brain hang ho gaya mera. Phir se try kar?";
             if (e.status === 429 || e.message?.includes("Quota exceeded")) {
-                errorMsg = `⏳ *Quota Exceeded:* Gemini Free Tier limit reached for model (${currentModelName}). Please wait a minute or set \`GEMINI_MODEL=gemini-1.5-flash\` in your .env.`;
+                errorMsg = `*Quota Exceeded:* Gemini Free Tier limit reached for model (${currentModelName}). Please wait a minute or set \`GEMINI_MODEL=gemini-1.5-flash\` in your .env.`;
             } else if (isSuperAdmin && e.status === 400 && e.message.includes("API key not valid")) {
-                errorMsg = `🚨 *SYSTEM ERROR: INVALID API KEY*\nCheck your .env file credentials.`;
+                errorMsg = `*SYSTEM ERROR: INVALID API KEY*\nCheck your .env file credentials.`;
             } else if (isSuperAdmin) {
-                errorMsg = `❌ *AI Error:* ${e.message.substring(0, 100)}`;
+                errorMsg = `*AI Error:* ${e.message.substring(0, 100)}`;
             }
             await sock.sendMessage(jid, { text: errorMsg }, { quoted: msg });
         }

@@ -79,7 +79,7 @@ chmod +x deploy.sh
 
 | Category | Commands |
 | :--- | :--- |
-| **Admin** | `.ban`, `.unban`, `.hardban`, `.set`, `.publicity`, `.stats`, `.safety`, `.hidetag`, `.tagall` |
+| **Admin** | `.antilink`, `.ban`, `.unban`, `.hardban`, `.set`, `.publicity`, `.stats`, `.safety`, `.hidetag`, `.tagall` |
 | **AI** | `.ask` (or direct mention / message reply) |
 | **Utilities & Fun** | `.sticker`, `.roast`, `.spam` |
 | **System** | `.help`, `.ping` |
