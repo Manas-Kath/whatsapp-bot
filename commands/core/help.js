@@ -21,7 +21,7 @@ module.exports = {
             map[cat].push(cmd);
         });
 
-        let text = `*BUNTY v5.6* (._.)\n`;
+        let text = `*BUNTY v5.8* (._.)\n`;
         text += `  • User: @${sender.split('@')[0]}\n`;
         text += `──────────────────\n`;
         

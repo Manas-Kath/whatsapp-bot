@@ -1,6 +1,6 @@
-# Bunty v5.6 Technical Manual
+# Bunty v5.8 Technical Manual
 
-**Version:** 5.6 (J7 Optimized)
+**Version:** 5.8 (Debian Docker & J7 Cross-Platform)
 **Purpose:** Comprehensive documentation for every single script in the codebase.
 
 ---
@@ -84,7 +84,7 @@
 
 ### 📂 `commands/admin/` (Boss Tools)
 
-- **`antilink.js`**: Per-group link protection. Automatically deletes the message on the 1st link (strike 1) and removes the offender from the group on the 2nd link (strike 2). Admins and whitelisted members are exempt.
+- **`antilink.js`**: Per-group link protection with 2-strike automated enforcement (strike 1: delete + warn, strike 2: delete + kick). Supports in-group stealth mode (`.antilink on -s` auto-deletes command and confirms in private DM) and remote DM management (`.antilink on <group>` in bot DM). Admins and whitelisted members are exempt.
 - **`ban.js` / `unban.js`**: Adds/Removes users from `database.json`. Banned users are ignored by `handler.js`.
 - **`hardban.js`**: A more aggressive ban. If a hardbanned user sends a message, the bot attempts to *delete* their message immediately (Anti-Spam).
 - **`hidetag.js`**: Sends a message that *looks* empty but secretly mentions everyone in the group. Used for announcements without the ugly list of names.

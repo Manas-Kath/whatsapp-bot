@@ -30,7 +30,7 @@ module.exports = {
         };
 
         if (args.length === 0) {
-            let text = `(｡◕‿◕｡) *SETTINGS*\n`;
+            let text = `(¬_¬) [ SETTINGS ]\n`;
             const map = {};
             Object.keys(settingsMap).forEach(key => {
                 const cat = settingsMap[key].cat;
@@ -48,7 +48,7 @@ module.exports = {
                 }).join('\n');
                 text += '\n';
             }
-            text += `\n💡 Usage: \`.set [key] [val]\``;
+            text += `\nUsage: \`.set [key] [val]\``;
             return sock.sendMessage(jid, { text });
         }
 
@@ -70,6 +70,6 @@ module.exports = {
         if (key === 'prefix') config.prefix = finalVal;
 
         const responseStatus = finalVal === true ? "ENABLED" : (finalVal === false ? "DISABLED" : finalVal);
-        return sock.sendMessage(jid, { text: `(＾▽＾) Updated *${key}* to *${responseStatus}*` });
+        return sock.sendMessage(jid, { text: `(¬_¬) [ SETTINGS ]\n\nUpdated *${key}* to *${responseStatus}*` });
     }
 };

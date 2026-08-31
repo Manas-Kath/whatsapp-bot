@@ -1,19 +1,20 @@
-# The Bunty Project (WhatsApp Bot) v5.6
+# The Bunty Project (WhatsApp Bot) v5.8
 
-A high-performance WhatsApp bot powered by Google Gemini 2.0 Flash AI and ESPHome IoT Integration. Designed for resource efficiency, system stability, and deployment flexibility across Debian Home Servers (Docker / Portainer / CasaOS) and legacy low-end hardware (Termux / Android).
+A high-performance WhatsApp bot powered by Google Gemini AI and ESPHome IoT Integration. Designed for resource efficiency, system stability, and deployment flexibility across Debian Home Servers (Docker / Portainer / CasaOS) and legacy low-end hardware (Termux / Android).
 
 ---
 
 ## Technical Overview
 
-- **AI Integration:** Google Gemini 2.0 Flash for multi-modal processing (text, voice note transcription, and image analysis) with short-term conversational context.
+- **AI Integration:** Google Gemini multi-modal processing (text, voice note transcription, image analysis, and group mention resolution) with shared conversational context.
+- **Group Protection:** Per-group Anti-Link moderation with a two-strike policy (Delete on 1st link, Remove on 2nd link) and granular member whitelisting.
 - **Hardware Control:** Built-in MQTT client interfacing with ESPHome Smart Hub relays and environment sensors.
 - **System Stability:**
   - Automatic session cleanup on authentication invalidation.
   - Exponential backoff delay on network timeout events.
   - Safe Mode loop detection to prevent startup crash cycles.
 - **Resource Management:** Capped memory footprint with manual garbage collection triggers for constrained environments.
-- **Response Format:** Structured, minimalistic output following standard system categories.
+- **Response Format:** Structured, minimalistic output following standard system categories `(¬_¬) [ CATEGORY ]`.
 
 ---
 
@@ -62,7 +63,7 @@ npm install --ignore-scripts
 # 2. Configure environment file
 cat <<EOF > .env
 GEMINI_API_KEY=your_gemini_api_key
-BOT_NAME="Bunty v5.6"
+BOT_NAME="Bunty v5.8"
 BOT_PREFIX=.
 SUPER_ADMIN_IDS=27441082949745@lid
 MQTT_BROKER_URL=mqtt://192.168.1.90:1883

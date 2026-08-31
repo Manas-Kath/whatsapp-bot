@@ -102,17 +102,17 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 async function startBunty() {
-    // 🛡️ SAFETY CHECK: Crash Loop & Safe Mode
+    // SAFETY CHECK: Crash Loop & Safe Mode
     const isSafeMode = safety.checkCrashLoop();
     if (isSafeMode) {
-        console.log("🛑 SAFE MODE ACTIVE. Minimal features loaded.");
+        console.log("[SAFE MODE] Active. Minimal features loaded.");
     }
 
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
     
     // Always fetch the latest version to avoid decryption lag
     const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(`🔥 Bunty v5.6.1 - WA v${version.join('.')}${isLatest ? ' (Latest)' : ' (Outdated)'}`);
+    console.log(`[INIT] Bunty v5.8 - WA v${version.join('.')}${isLatest ? ' (Latest)' : ' (Outdated)'}`);
 
     loadCommands(); 
 
@@ -153,15 +153,15 @@ async function startBunty() {
                         fs.rmSync('auth_info', { recursive: true, force: true });
                     }
                 } catch (e) {
-                    console.log("❌ Auto-fix failed. Manually run: rm -rf auth_info");
+                    console.log("[ERROR] Auto-fix failed. Manually run: rm -rf auth_info");
                 }
                 process.exit(1); 
             }
         } else if (connection === 'open') {
-            console.log('＼(≧▽≦)／ Connected! Bunty is ready.');
+            console.log('(¬_¬) Connected! Bunty v5.8 is ready.');
             if (isSafeMode) {
                 const adminJid = config.superAdminIds[0];
-                if (adminJid) await sock.sendMessage(adminJid, { text: "⚠️ *Safe Mode Active!*\nI've crashed too many times recently. Use `.safety reset` to clear." });
+                if (adminJid) await sock.sendMessage(adminJid, { text: "(¬_¬) [ SAFE MODE ]\n\nCrash loop detected. Minimal features loaded. Use `.safety reset` to clear." });
             }
         }
     });
@@ -176,7 +176,7 @@ async function startBunty() {
         
         // Only log if process RSS exceeds 300MB
         if (health.nodeUsageMB > 300) {
-            console.log(`⚠️ HEALTH: Process RSS=${health.nodeUsageMB}MB`);
+            console.log(`[HEALTH] Process RSS=${health.nodeUsageMB}MB`);
         }
         
         // Every 10 mins, clear group metadata cache to keep it clean
@@ -232,7 +232,7 @@ async function startBunty() {
                         const { downloadMediaMessage } = require('@whiskeysockets/baileys');
                         const buffer = await downloadMediaMessage(oldMsg, 'buffer', {});
                         if (buffer && buffer.length > 0) {
-                            const caption = `🗑️ *Deleted Media*\n👤 @${victim.split('@')[0]}${textContent ? `\n📝 ${textContent}` : ''}`;
+                            const caption = `(¬_¬) [ DELETED MEDIA ]\nUser: @${victim.split('@')[0]}${textContent ? `\nContent: ${textContent}` : ''}`;
                             
                             if (oType === 'imageMessage') {
                                 await sock.sendMessage(adminJid, { image: buffer, caption, mentions: [victim] });
@@ -256,7 +256,7 @@ async function startBunty() {
 
                 // If pure text message exists
                 if (textContent && textContent.trim().length > 0) {
-                    const report = `🗑️ *Deleted Message*\n👤 @${victim.split('@')[0]}\n📝 ${textContent}`;
+                    const report = `(¬_¬) [ DELETED MESSAGE ]\nUser: @${victim.split('@')[0]}\nContent: ${textContent}`;
                     await sock.sendMessage(adminJid, { text: report, mentions: [victim] });
                 }
                 // (Blank media without downloadable content is ignored to prevent spam)
@@ -300,7 +300,7 @@ async function startBunty() {
             } catch (e) {}
         }
 
-        // --- 🔗 PER-GROUP ANTI-LINK ENFORCER ---
+        // --- PER-GROUP ANTI-LINK ENFORCER ---
         if (isGroup && db.isAntilinkEnabled(jid)) {
             const isExempt = isAdmin || isSuperAdmin || db.isLinkWhitelisted(jid, sender);
             if (!isExempt && containsLink(body)) {
@@ -313,21 +313,21 @@ async function startBunty() {
 
                 if (warningCount === 1) {
                     const warnText = `(¬_¬) [ ANTILINK ]\n\n` +
-                                     `⚠️ Warning [ 1 / 2 ] for @${sender.split('@')[0]}\n` +
+                                     `Warning [ 1 / 2 ] for @${sender.split('@')[0]}\n` +
                                      `• Links are prohibited in this group.\n` +
-                                     `• Sending another link will result in automatic removal.`;
+                                     `• Sending another link will result in removal.`;
                     await sock.sendMessage(jid, { text: warnText, mentions: [sender] });
                 } else if (warningCount >= 2) {
                     try {
                         await sock.groupParticipantsUpdate(jid, [sender], 'remove');
                         const kickText = `(¬_¬) [ ANTILINK ]\n\n` +
-                                         `🚫 @${sender.split('@')[0]} has been removed for sending links (2/2 strikes).`;
+                                         `@${sender.split('@')[0]} has been removed for sending links (2/2 strikes).`;
                         await sock.sendMessage(jid, { text: kickText, mentions: [sender] });
                         db.resetLinkWarnings(jid, sender);
                     } catch (e) {
                         const failText = `(¬_¬) [ ANTILINK ]\n\n` +
-                                         `⚠️ @${sender.split('@')[0]} reached strike 2/2 for sending links.\n` +
-                                         `• (Failed to remove user: bot needs Admin privileges).`;
+                                         `@${sender.split('@')[0]} reached strike 2/2 for sending links.\n` +
+                                         `• Failed to remove user: bot needs Admin privileges.`;
                         await sock.sendMessage(jid, { text: failText, mentions: [sender] });
                     }
                 }

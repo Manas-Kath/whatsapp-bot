@@ -18,18 +18,18 @@ module.exports = {
             mentions = db.data.banned;
             bannedDisplay = db.data.banned.map(id => {
                 const isHard = db.isHardBanned(id);
-                const icon = isHard ? "💀" : "🚫";
-                return `  ${icon} @${id.split('@')[0]}`; 
+                const tag = isHard ? "[HARD]" : "[BAN]";
+                return `  • ${tag} @${id.split('@')[0]}`; 
             }).join('\n');
         }
 
         const key = config.geminiApiKey || "NONE";
-        const maskedKey = key !== "NONE" ? `${key.substring(0, 5)}...${key.substring(key.length - 4)}` : "❌ MISSING";
+        const maskedKey = key !== "NONE" ? `${key.substring(0, 5)}...${key.substring(key.length - 4)}` : "MISSING";
 
-        let text = `*BUNTY v5.6.1*\n (¬_¬) [ SYSTEM ]\n\n  • Uptime: ${hrs}h ${mins}m\n  • Commands: ${db.data.stats.cmdCount}\n  • Banned Users: ${db.data.banned.length}\n\n*THE BLACKLIST* 💀\n${bannedDisplay}`;
+        let text = `(¬_¬) [ SYSTEM STATS ]\n\n*Bunty v5.8*\n  • Uptime: ${hrs}h ${mins}m\n  • Commands Executed: ${db.data.stats.cmdCount}\n  • Banned Users: ${db.data.banned.length}\n\n*Blacklist:*\n${bannedDisplay}`;
 
         if (isSuperAdmin) {
-            text += `\n\n*DEBUG INFO* 🛠️\n  • Gemini API Key: \`${maskedKey}\` (${key.length} chars)\n  • RAM Health: ${safety.getMemoryHealth().nodeUsageMB}MB`;
+            text += `\n\n*Debug Info:*\n  • Gemini Key: \`${maskedKey}\` (${key.length} chars)\n  • RAM Usage: ${safety.getMemoryHealth().nodeUsageMB}MB`;
         }
 
         await sock.sendMessage(jid, { text, mentions });
