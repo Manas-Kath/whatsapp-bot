@@ -1,0 +1,12 @@
+{
+  "name": "bunty-api",
+  "version": "1.0.0",
+  "description": "Serverless proxy API for Bunty AI with hidden system prompt and API key authentication",
+  "main": "api/chat.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1"
+  }
+}

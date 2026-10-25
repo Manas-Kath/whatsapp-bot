@@ -3,6 +3,7 @@ const config = require('../../config');
 const { downloadMediaMessage } = require('@whiskeysockets/baileys');
 const NodeCache = require('node-cache');
 const memory = require('../../lib/memory');
+const db = require('../../lib/database');
 const ffmpeg = require('fluent-ffmpeg');
 const fs = require('fs');
 const path = require('path');
@@ -28,7 +29,10 @@ const SYSTEM_INSTRUCTION = `
     - Talk like a real human on WhatsApp. Do not yap. No emoji-spam, no robotic excitement.
     - Avoid generic AI filler phrases (e.g., "Got it, boss!", "Save kar liya maine", "is officially in my system now", "Aur koi seva?"). Just be cool, dry, and direct.
     - If asked to remember something, reply with something brief like "Noted" or "Yaad rakhega".
-`;
+    - In group chats, messages are formatted as "[SenderName (Role)]: message". Remember who said what.
+    - Facts stated by users (e.g., "remember I am X") apply to the entire group. When someone else asks about someone, refer to what was stated in the group history.
+    - If a user has the "(Boss)" tag, they are your creator and administrator.
+`.trim();
 
 function createModelInstance(modelName) {
     if (!genAI || !config.geminiApiKey) return null;
@@ -57,7 +61,7 @@ module.exports = {
     name: "ask",
     alias: ["bunty", "ai"],
     desc: "Chat with Bunty",
-    run: async ({ sock, jid, msg, text, quoted, sender, isSuperAdmin, mentionDirectory = [] }) => {
+    run: async ({ sock, jid, msg, text, quoted, sender, isSuperAdmin, isAdmin, mentionDirectory = [] }) => {
         if (!model) return sock.sendMessage(jid, { text: "Bunty is sleeping right now." });
 
         if (text === 'reset' || text === 'clear') {
@@ -68,11 +72,12 @@ module.exports = {
         if (cooldowns.has(sender)) return;
         cooldowns.set(sender, true);
 
+        const isGroup = jid.endsWith('@g.us');
         let promptText = text;
 
         // `.ask @member ...` goes through the command handler rather than
         // index.js's mention-trigger path, so load its directory here too.
-        if (!mentionDirectory.length && jid.endsWith('@g.us')) {
+        if (!mentionDirectory.length && isGroup) {
             try {
                 mentionDirectory = buildMentionDirectory(await sock.groupMetadata(jid));
                 promptText = replaceIncomingMentions(promptText, mentionDirectory);
@@ -127,9 +132,14 @@ module.exports = {
             }
         }
 
-        const statusContext = isSuperAdmin ? "[SYSTEM: BOSS user]" : "[SYSTEM: Regular user]";
-        const groupMentionContext = mentionInstruction(mentionDirectory);
-        const aiPrompt = [statusContext, groupMentionContext, promptText || "Yo"].filter(Boolean).join('\n');
+        // Build User Attribution Tag for Group Chats
+        const senderName = msg?.pushName || db.getUserName(sender) || (sender ? sender.split('@')[0] : 'User');
+        const roleTag = isSuperAdmin ? " (Boss)" : isAdmin ? " (Admin)" : "";
+        const userPrefix = isGroup ? `[${senderName}${roleTag}]: ` : "";
+        const userTurnText = `${userPrefix}${promptText || "Yo"}`;
+
+        const groupMentionContext = mentionInstruction(mentionDirectory, promptText);
+        const aiPrompt = groupMentionContext ? `${groupMentionContext}\n${userTurnText}` : userTurnText;
         let history = memory.get(jid);
 
         try {
@@ -138,20 +148,24 @@ module.exports = {
             if (mediaData) {
                 // Multi-modal call
                 const result = await model.generateContent([
-                    statusContext,
-                    groupMentionContext,
-                    promptText || "Analyze this.",
+                    aiPrompt,
                     { inlineData: { data: mediaData, mimeType } }
                 ]);
                 responseText = result.response.text();
             } else {
-                // Chat history call
-                const chat = model.startChat({ history });
+                // Chat history call with clean clone so Google SDK does not mutate our memory
+                const sessionHistory = history.map(item => ({
+                    role: item.role,
+                    parts: [{ text: item.parts[0]?.text || "" }]
+                }));
+
+                const chat = model.startChat({ history: sessionHistory });
                 const result = await chat.sendMessage(aiPrompt);
                 responseText = result.response.text();
 
-                history.push({ role: "user", parts: [{ text: promptText || "Yo" }] });
-                history.push({ role: "model", parts: [{ text: responseText }] });
+                // Save clean user turn and clean response to persistent history
+                history.push({ role: "user", parts: [{ text: userTurnText }] });
+                history.push({ role: "model", parts: [{ text: cleanResponse(responseText) }] });
                 memory.set(jid, history);
             }
 
@@ -183,18 +197,22 @@ module.exports = {
                             let fbText = "";
                             if (mediaData) {
                                 const result = await model.generateContent([
-                                    statusContext,
-                                    groupMentionContext,
-                                    promptText || "Analyze this.",
+                                    aiPrompt,
                                     { inlineData: { data: mediaData, mimeType } }
                                 ]);
                                 fbText = result.response.text();
                             } else {
-                                const chat = model.startChat({ history });
+                                const sessionHistory = history.map(item => ({
+                                    role: item.role,
+                                    parts: [{ text: item.parts[0]?.text || "" }]
+                                }));
+
+                                const chat = model.startChat({ history: sessionHistory });
                                 const result = await chat.sendMessage(aiPrompt);
                                 fbText = result.response.text();
-                                history.push({ role: "user", parts: [{ text: promptText || "Yo" }] });
-                                history.push({ role: "model", parts: [{ text: fbText }] });
+
+                                history.push({ role: "user", parts: [{ text: userTurnText }] });
+                                history.push({ role: "model", parts: [{ text: cleanResponse(fbText) }] });
                                 memory.set(jid, history);
                             }
                             const resolvedFallback = resolveGeneratedMentions(cleanResponse(fbText), mentionDirectory);
@@ -211,7 +229,7 @@ module.exports = {
 
             let errorMsg = "(ノ﹏ヽ) Brain hang ho gaya mera. Phir se try kar?";
             if (e.status === 429 || e.message?.includes("Quota exceeded")) {
-                errorMsg = `*Quota Exceeded:* Gemini Free Tier limit reached for model (${currentModelName}). Please wait a minute or set \`GEMINI_MODEL=gemini-1.5-flash\` in your .env.`;
+                errorMsg = `*Quota Exceeded:* Gemini Free Tier limit reached for model (${currentModelName}). Please wait a minute or set \`GEMINI_MODEL=gemini-3.5-flash-lite\` in your .env.`;
             } else if (isSuperAdmin && e.status === 400 && e.message.includes("API key not valid")) {
                 errorMsg = `*SYSTEM ERROR: INVALID API KEY*\nCheck your .env file credentials.`;
             } else if (isSuperAdmin) {

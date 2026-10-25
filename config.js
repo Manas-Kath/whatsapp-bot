@@ -1,7 +1,7 @@
 require('dotenv').config();
 
 module.exports = {
-    botName: process.env.BOT_NAME || "Bunty v5.8",
+    botName: process.env.BOT_NAME || "Bunty v5.9",
     superAdminIds: (process.env.SUPER_ADMIN_IDS || '27441082949745@lid').split(','),
     prefix: process.env.BOT_PREFIX || ".", 
     geminiApiKey: process.env.GEMINI_API_KEY, 

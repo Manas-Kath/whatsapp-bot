@@ -289,6 +289,9 @@ async function startBunty() {
 
         if (!body && !isCmd) return;
 
+        // Track user display name
+        if (msg.pushName && sender) db.saveUser(sender, msg.pushName);
+
         let isAdmin = false;
         if (isGroup) {
             try {
