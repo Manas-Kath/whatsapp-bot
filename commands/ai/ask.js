@@ -12,7 +12,8 @@ const {
     buildMentionDirectory,
     replaceIncomingMentions,
     mentionInstruction,
-    resolveGeneratedMentions
+    resolveGeneratedMentions,
+    formatMentionsForMemory
 } = require('../../lib/mentions');
 
 const cooldowns = new NodeCache({ stdTTL: 10 }); 
@@ -31,6 +32,7 @@ const SYSTEM_INSTRUCTION = `
     - If asked to remember something, reply with something brief like "Noted" or "Yaad rakhega".
     - In group chats, messages are formatted as "[SenderName (Role)]: message". Remember who said what.
     - Facts stated by users (e.g., "remember I am X") apply to the entire group. When someone else asks about someone, refer to what was stated in the group history.
+    - To mention or tag a user in a group, use @Name (e.g. @Pragya Singh) or [[mention:member_N]].
     - If a user has the "(Boss)" tag, they are your creator and administrator.
 `.trim();
 
@@ -163,9 +165,10 @@ module.exports = {
                 const result = await chat.sendMessage(aiPrompt);
                 responseText = result.response.text();
 
-                // Save clean user turn and clean response to persistent history
+                // Save clean user turn and human-readable response to persistent history
+                const memoryModelTurn = formatMentionsForMemory(cleanResponse(responseText), mentionDirectory);
                 history.push({ role: "user", parts: [{ text: userTurnText }] });
-                history.push({ role: "model", parts: [{ text: cleanResponse(responseText) }] });
+                history.push({ role: "model", parts: [{ text: memoryModelTurn }] });
                 memory.set(jid, history);
             }
 
@@ -211,8 +214,9 @@ module.exports = {
                                 const result = await chat.sendMessage(aiPrompt);
                                 fbText = result.response.text();
 
+                                const memoryFbTurn = formatMentionsForMemory(cleanResponse(fbText), mentionDirectory);
                                 history.push({ role: "user", parts: [{ text: userTurnText }] });
-                                history.push({ role: "model", parts: [{ text: cleanResponse(fbText) }] });
+                                history.push({ role: "model", parts: [{ text: memoryFbTurn }] });
                                 memory.set(jid, history);
                             }
                             const resolvedFallback = resolveGeneratedMentions(cleanResponse(fbText), mentionDirectory);
