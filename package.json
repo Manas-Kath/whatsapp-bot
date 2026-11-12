@@ -1,6 +1,6 @@
 {
   "name": "bunty-bot-v5",
-  "version": "5.9.1",
+  "version": "5.9.2",
   "main": "index.js",
   "type": "commonjs",
   "scripts": {

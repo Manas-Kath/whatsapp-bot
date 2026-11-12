@@ -112,7 +112,7 @@ async function startBunty() {
     
     // Always fetch the latest version to avoid decryption lag
     const { version, isLatest } = await fetchLatestBaileysVersion();
-    console.log(`[INIT] Bunty v5.8 - WA v${version.join('.')}${isLatest ? ' (Latest)' : ' (Outdated)'}`);
+    console.log(`[INIT] Bunty v${config.version} - WA v${version.join('.')}${isLatest ? ' (Latest)' : ' (Outdated)'}`);
 
     loadCommands(); 
 
@@ -158,7 +158,7 @@ async function startBunty() {
                 process.exit(1); 
             }
         } else if (connection === 'open') {
-            console.log('(¬_¬) Connected! Bunty v5.8 is ready.');
+            console.log(`(¬_¬) Connected! Bunty v${config.version} is ready.`);
             if (isSafeMode) {
                 const adminJid = config.superAdminIds[0];
                 if (adminJid) await sock.sendMessage(adminJid, { text: "(¬_¬) [ SAFE MODE ]\n\nCrash loop detected. Minimal features loaded. Use `.safety reset` to clear." });

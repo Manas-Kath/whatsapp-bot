@@ -7,7 +7,7 @@ module.exports = {
     run: async ({ sock, jid, msg, isSuperAdmin, sender }) => {
         const { commands } = require('../../lib/handler');
         
-        const modCommands = ['ban', 'unban', 'hidetag', 'tagall', 'stats', 'antilink'];
+        const modCommands = ['ban', 'unban', 'hidetag', 'tagall', 'stats', 'antilink', 'groupadd'];
         const ownerCommands = ['hardban', 'set', 'publicity', 'safety'];
 
         const map = {};
@@ -21,7 +21,7 @@ module.exports = {
             map[cat].push(cmd);
         });
 
-        let text = `*BUNTY v5.8* (._.)\n`;
+        let text = `*BUNTY v${config.version}* (._.)\n`;
         text += `  • User: @${sender.split('@')[0]}\n`;
         text += `──────────────────\n`;
         

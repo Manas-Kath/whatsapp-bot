@@ -1,4 +1,4 @@
-# The Bunty Project (WhatsApp Bot) v5.8
+# The Bunty Project (WhatsApp Bot) v5.9.2
 
 A high-performance WhatsApp bot powered by Google Gemini AI and ESPHome IoT Integration. Designed for resource efficiency, system stability, and deployment flexibility across Debian Home Servers (Docker / Portainer / CasaOS) and legacy low-end hardware (Termux / Android).
 
@@ -8,6 +8,7 @@ A high-performance WhatsApp bot powered by Google Gemini AI and ESPHome IoT Inte
 
 - **AI Integration:** Google Gemini multi-modal processing (text, voice note transcription, image analysis, and group mention resolution) with shared conversational context.
 - **Group Protection:** Per-group Anti-Link moderation with a two-strike policy (Delete on 1st link, Remove on 2nd link) and granular member whitelisting.
+- **Bulk Group Add:** `.groupadd` adds a list of numbers to a group in throttled, batched requests, sends an invite (native card or link) when a member's privacy blocks the add, and keeps a resumable per-group queue (`.groupadd resume`). Requires bot admin; see GUIDE.md for usage, flags and limits.
 - **Hardware Control:** Built-in MQTT client interfacing with ESPHome Smart Hub relays and environment sensors.
 - **System Stability:**
   - Automatic session cleanup on authentication invalidation.
@@ -63,7 +64,7 @@ npm install --ignore-scripts
 # 2. Configure environment file
 cat <<EOF > .env
 GEMINI_API_KEY=your_gemini_api_key
-BOT_NAME="Bunty v5.8"
+BOT_NAME="Bunty v5.9.2"
 BOT_PREFIX=.
 SUPER_ADMIN_IDS=27441082949745@lid
 MQTT_BROKER_URL=mqtt://192.168.1.90:1883
@@ -80,7 +81,7 @@ chmod +x deploy.sh
 
 | Category | Commands |
 | :--- | :--- |
-| **Admin** | `.antilink`, `.ban`, `.unban`, `.hardban`, `.set`, `.publicity`, `.stats`, `.safety`, `.hidetag`, `.tagall` |
+| **Admin** | `.antilink`, `.ban`, `.unban`, `.hardban`, `.set`, `.publicity`, `.stats`, `.safety`, `.hidetag`, `.tagall`, `.groupadd` |
 | **AI** | `.ask` (or direct mention / message reply) |
 | **Utilities & Fun** | `.sticker`, `.roast`, `.spam` |
 | **System** | `.help`, `.ping` |
