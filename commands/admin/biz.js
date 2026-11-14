@@ -4,7 +4,7 @@ const { jidNormalizedUser } = require('@whiskeysockets/baileys');
 module.exports = {
     name: 'biz',
     category: 'admin',
-    desc: 'Business module management (registration, group setup, status)',
+    desc: 'Business module management (registration, group setup, status, reports)',
     superAdminOnly: true,
 
     run: async (ctx) => {
@@ -13,10 +13,13 @@ module.exports = {
 
         if (!sub || sub === 'help') {
             const helpText = `(¬_¬) [ BIZ ADMIN ]\n\n` +
-                `• \`.biz whoami\` - Show sender ID (or reply to a message to get quoted sender's ID)\n` +
+                `• \`.biz whoami\` - Show sender ID (or reply to a message)\n` +
+                `• \`.biz summary\` - Today's sales, collections & pending\n` +
+                `• \`.biz pending\` - List all pending sales\n` +
+                `• \`.biz export\` - Export sales in Google Form CSV layout\n` +
                 `• \`.biz status\` - Overview of business DB & settings\n` +
                 `• \`.biz setgroup\` - Set current group as official business group\n` +
-                `• \`.biz adduser <name> <role> <id> [alias1,alias2]\` - Register family member\n` +
+                `• \`.biz adduser <name> <role> <id> [alias1,alias2]\` - Register member\n` +
                 `• \`.biz listusers\` - View registered family members\n` +
                 `• \`.biz inputs [limit]\` - View recent business inputs`;
             return sock.sendMessage(jid, { text: helpText }, { quoted: msg });
@@ -51,16 +54,51 @@ module.exports = {
             return sock.sendMessage(jid, { text }, { quoted: msg });
         }
 
+        if (sub === 'summary' || sub === 'report') {
+            const sum = biz.sales.getTodaySummary(db);
+            const text = `(¬_¬) [ AAJ KA HISAAB ] 📊\n\n` +
+                `• Today's Sales: ${sum.salesCount} (₹${Math.round(sum.salesTotalPaise / 100)})\n` +
+                `• Cash Collected: ₹${Math.round(sum.cashCollectedPaise / 100)}\n` +
+                `• UPI Collected: ₹${Math.round(sum.upiCollectedPaise / 100)}\n` +
+                `• Total Collected: ₹${Math.round(sum.totalCollectedPaise / 100)}\n\n` +
+                `*Total Outstanding Pending:* ₹${Math.round(sum.totalPendingPaise / 100)}`;
+            return sock.sendMessage(jid, { text }, { quoted: msg });
+        }
+
+        if (sub === 'pending') {
+            const pendingList = biz.sales.findPendingSales(null, db);
+            if (!pendingList.length) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ PENDING ] 📋\n\nKoi pending amount nahi hai. Sab clear hai!` }, { quoted: msg });
+            }
+            let totalPaise = 0;
+            let text = `(¬_¬) [ BIZ PENDING ] 📋\n\n`;
+            for (const ps of pendingList) {
+                const pendingRs = Math.round(ps.pending_paise / 100);
+                totalPaise += ps.pending_paise;
+                text += `• *#${ps.id} ${ps.sold_to}* - ₹${pendingRs} (${ps.brand || 'Suit'} ${ps.colour || ''})\n`;
+            }
+            text += `\n*Total Pending:* ₹${Math.round(totalPaise / 100)}`;
+            return sock.sendMessage(jid, { text }, { quoted: msg });
+        }
+
+        if (sub === 'export') {
+            const csvData = biz.export.exportToCsv(db);
+            const text = `(¬_¬) [ BIZ EXPORT ] 📁\n\n\`\`\`\n${csvData}\n\`\`\``;
+            return sock.sendMessage(jid, { text }, { quoted: msg });
+        }
+
         if (sub === 'status') {
             const bizGroup = biz.db.getSetting('biz_group_jid', db) || process.env.BIZ_GROUP_JID || 'Not configured';
             const maxAgeHours = biz.db.getSetting('biz_max_msg_age_hours', db) || process.env.BIZ_MAX_MSG_AGE_HOURS || '24';
             const peopleCount = db.prepare('SELECT count(*) as count FROM people').get().count;
             const inputCount = db.prepare('SELECT count(*) as count FROM inputs').get().count;
+            const salesCount = db.prepare("SELECT count(*) as count FROM sales WHERE status = 'active'").get().count;
 
             const statusText = `(¬_¬) [ BIZ STATUS ]\n\n` +
                 `• Business Group: \`${bizGroup}\`\n` +
                 `• Max Msg Age: ${maxAgeHours} hours\n` +
                 `• Registered People: ${peopleCount}\n` +
+                `• Active Sales: ${salesCount}\n` +
                 `• Total Inputs Logged: ${inputCount}\n` +
                 `• SQLite WAL Mode: Enabled`;
             return sock.sendMessage(jid, { text: statusText }, { quoted: msg });
@@ -75,7 +113,6 @@ module.exports = {
         }
 
         if (sub === 'adduser') {
-            // .biz adduser Meera member 919876543210@s.whatsapp.net mummy,mom
             const name = args[1];
             const role = (args[2] || 'member').toLowerCase();
             const identifier = args[3];

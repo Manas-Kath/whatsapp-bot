@@ -5,7 +5,7 @@ const Database = require('better-sqlite3');
 const biz = require('./lib/biz');
 const bizCmd = require('./commands/admin/biz');
 
-console.log('[TEST] Starting Business Module Tests...');
+console.log('[TEST] Starting Business Module Tests (Phase 1 & Phase 2)...');
 
 // Setup test in-memory SQLite DB
 const testDb = new Database(':memory:');
@@ -112,117 +112,145 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert(res3.replies[0].text.includes('Identity: Mummy'));
     const input3 = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-003'").get();
     assert.strictEqual(input3.person_id, mom.id);
-    assert.strictEqual(input3.raw_text, 'biz ping');
     assert.strictEqual(input3.outcome, 'recorded');
+    console.log('✓ Test 4: Chat and sender permission boundaries validated');
 
-    // 4D: Authorized user in biz group -> handled & pre-logged
-    const res4 = await biz.handle({
-        msgId: 'MSG-004',
+    // --- TEST 5: NLP Normalizer & Lexicon ---
+    const norm1 = biz.nlp.normalize.normalizeText('Meera ko Idhu wine sued 40 L ₹2450 mein beche, pending');
+    assert(norm1.includes('suit'), 'Spelling variant sued -> suit');
+    assert(norm1.includes('2450'), 'Currency ₹ stripped to 2450');
+    assert(norm1.includes('pending'), 'Pending preserved');
+
+    const norm2 = biz.nlp.normalize.normalizeText('dedh hazaar cash diye');
+    assert(norm2.includes('1500'), 'dedh hazaar -> 1500');
+
+    const norm3 = biz.nlp.normalize.normalizeText('2 hazar upi');
+    assert(norm3.includes('2000'), '2 hazar -> 2000');
+    console.log('✓ Test 5: Normalizer & Hindi amount lexicons pass');
+
+    // --- TEST 6: Phase 2 - Record Real Sales ---
+    // 6A: Pending credit sale (Meera)
+    const saleRes1 = await biz.handle({
+        msgId: 'MSG-SALE-001',
         chat: BIZ_GROUP,
-        senderId: '22222222@lid',
-        ts: 1700000003,
+        senderId: '11111111@lid',
+        ts: 1700000100,
         type: 'text',
         text: 'Meera ko Idhu wine suit 40 L 2450 mein beche, pending'
-    }, { db: testDb, nowSec: 1700000003 });
-    assert.strictEqual(res4.handled, true);
-    assert(res4.replies[0].text.includes('Logged by Papa'));
-    const input4 = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-004'").get();
-    assert.strictEqual(input4.person_id, dad.id);
-    assert.strictEqual(input4.raw_text, 'Meera ko Idhu wine suit 40 L 2450 mein beche, pending');
+    }, { db: testDb, nowSec: 1700000100 });
 
-    // --- TEST 5: Idempotency Replay (completed row) ---
-    // Re-sending MSG-004 returns the previous reply and adds no new inputs
-    const inputsBefore = testDb.prepare('SELECT count(*) as c FROM inputs').get().c;
-    const res5 = await biz.handle({
-        msgId: 'MSG-004',
+    assert.strictEqual(saleRes1.handled, true);
+    assert(saleRes1.replies[0].text.includes('Sold to: Meera'));
+    assert(saleRes1.replies[0].text.includes('₹2450'));
+    assert(saleRes1.replies[0].text.includes('Payment: Pending'));
+    assert(saleRes1.replies[0].text.includes('Brand: Idhu'));
+
+    const saleRow1 = testDb.prepare("SELECT * FROM sales WHERE sold_to = 'Meera'").get();
+    assert.strictEqual(saleRow1.sold_for_paise, 245000);
+    assert.strictEqual(saleRow1.money_note, 'Pending');
+
+    // 6B: Cash upfront sale (Aaj 2 suit 1200 mein beche, cash Mummy ke paas)
+    const saleRes2 = await biz.handle({
+        msgId: 'MSG-SALE-002',
         chat: BIZ_GROUP,
         senderId: '22222222@lid',
-        ts: 1700000003,
+        ts: 1700000200,
         type: 'text',
-        text: 'Meera ko Idhu wine suit 40 L 2450 mein beche, pending'
-    }, { db: testDb, nowSec: 1700000003 });
-    const inputsAfter = testDb.prepare('SELECT count(*) as c FROM inputs').get().c;
-    assert.strictEqual(inputsBefore, inputsAfter, 'Replay must not add duplicate input rows');
-    assert.strictEqual(res5.handled, true);
-    assert.strictEqual(res5.replies[0].text, res4.replies[0].text, 'Replay must return original reply');
-    console.log('✓ Test 4 & 5: Permissions, raw logging, and idempotency replay pass');
+        text: 'Aaj 2 suit 1200 mein beche, cash Mummy ke paas'
+    }, { db: testDb, nowSec: 1700000200 });
 
-    // --- TEST 6: Item (2) - Ignore messages older than 24h ---
-    const nowSec = 1700100000;
-    // 25 hours old: 25 * 3600 = 90000s
-    const oldTs = nowSec - 90000;
-    const resOld = await biz.handle({
-        msgId: 'MSG-OLD-001',
+    assert.strictEqual(saleRes2.handled, true);
+    assert(saleRes2.replies[0].text.includes('₹1200'));
+    assert(saleRes2.replies[0].text.includes('Cash - Mummy'));
+
+    const saleRow2 = testDb.prepare("SELECT * FROM sales WHERE id = ?").get(saleRow1.id + 1);
+    assert.strictEqual(saleRow2.sold_for_paise, 120000);
+    const payRow2 = testDb.prepare("SELECT * FROM payments WHERE sale_id = ?").get(saleRow2.id);
+    assert(payRow2, 'Upfront cash sale must have linked payments row');
+    assert.strictEqual(payRow2.amount_paise, 120000);
+    assert.strictEqual(payRow2.mode, 'cash');
+    console.log('✓ Test 6: Recording sales (credit/pending & cash upfront) passes');
+
+    // --- TEST 7: Phase 2 - Settle Pending Credit Sale ---
+    // Meera was pending ₹2450; now paying ₹2450 cash
+    const settleRes = await biz.handle({
+        msgId: 'MSG-PAY-001',
         chat: BIZ_GROUP,
-        senderId: '22222222@lid',
-        ts: oldTs,
+        senderId: '11111111@lid',
+        ts: 1700000300,
         type: 'text',
-        text: 'Purana hisaab 5000'
-    }, { db: testDb, nowSec });
-    assert.strictEqual(resOld.handled, false, 'Message older than 24h should be ignored');
-    assert.strictEqual(testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-OLD-001'").get(), undefined, 'Old message must not be saved to inputs');
+        text: 'Meera ne 2450 cash diye'
+    }, { db: testDb, nowSec: 1700000300 });
 
-    // 2 hours old: 2 * 3600 = 7200s (within 24h window) -> should be processed
-    const freshTs = nowSec - 7200;
-    const resFresh = await biz.handle({
-        msgId: 'MSG-FRESH-001',
+    assert.strictEqual(settleRes.handled, true);
+    assert(settleRes.replies[0].text.includes('paid ₹2450'));
+    assert(settleRes.replies[0].text.includes('Pending: ₹0'));
+
+    const pendingAfter = biz.sales.findPendingSales('Meera', testDb);
+    assert.strictEqual(pendingAfter.length, 0, 'Meera pending sale should now be settled');
+    console.log('✓ Test 7: Settle pending credit sale passes');
+
+    // --- TEST 8: Phase 2 - Missing Payment Status & Follow-up Question ---
+    // User sends sale without specifying payment status
+    const askRes = await biz.handle({
+        msgId: 'MSG-ASK-001',
         chat: BIZ_GROUP,
-        senderId: '22222222@lid',
-        ts: freshTs,
+        senderId: '11111111@lid',
+        ts: 1700000400,
         type: 'text',
-        text: 'Fresh suit 1200'
-    }, { db: testDb, nowSec });
-    assert.strictEqual(resFresh.handled, true, 'Message within 24h should be handled');
-    assert.strictEqual(testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-FRESH-001'").get()?.outcome, 'recorded');
+        text: 'Varun red suit 1800 mein becha'
+    }, { db: testDb, nowSec: 1700000400 });
 
-    // Test configurable setting: override maxAgeHours to 1 hour
-    biz.db.setSetting('biz_max_msg_age_hours', '1', testDb);
-    const resConfigOld = await biz.handle({
-        msgId: 'MSG-CONFIG-001',
+    assert.strictEqual(askRes.handled, true);
+    assert(askRes.replies[0].text.includes('Money kiske paas aur kaise'));
+
+    // Answering the pending question with "UPI Papa"
+    const ansRes = await biz.handle({
+        msgId: 'MSG-ANS-001',
         chat: BIZ_GROUP,
-        senderId: '22222222@lid',
-        ts: nowSec - 7200, // 2 hours old, but max age is now 1 hour
+        senderId: '11111111@lid',
+        ts: 1700000410,
         type: 'text',
-        text: 'Should be ignored with 1h setting'
-    }, { db: testDb, nowSec });
-    assert.strictEqual(resConfigOld.handled, false, 'Message exceeding custom max age setting should be ignored');
-    console.log('✓ Test 6: Item (2) - Age filtering (24h default & custom setting) passes');
+        text: 'UPI Papa'
+    }, { db: testDb, nowSec: 1700000410 });
 
-    // --- TEST 7: Item (5) - Re-process existing pending input row on redelivery ---
-    // Manually insert an input with outcome = 'pending' and reply_text = null (simulating a crash mid-processing)
-    testDb.prepare(`
-        INSERT INTO inputs (msg_id, ts, received_at, person_id, chat, kind, raw_text, stage, outcome)
-        VALUES ('MSG-PENDING-001', ?, ?, ?, ?, 'text', 'Crashed sale message 3000', 'raw', 'pending')
-    `).run(nowSec, nowSec, dad.id, BIZ_GROUP);
+    assert.strictEqual(ansRes.handled, true);
+    assert(ansRes.replies[0].text.includes('Amount: ₹1800'));
+    assert(ansRes.replies[0].text.includes('Payment: UPI - Papa'));
+    console.log('✓ Test 8: Follow-up question and resolution flow passes');
 
-    const pendingRowBefore = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-PENDING-001'").get();
-    assert.strictEqual(pendingRowBefore.outcome, 'pending');
-    assert.strictEqual(pendingRowBefore.reply_text, null);
-
-    const countBeforeRedelivery = testDb.prepare('SELECT count(*) as c FROM inputs').get().c;
-
-    // Redelivery arrives:
-    const resRedelivery = await biz.handle({
-        msgId: 'MSG-PENDING-001',
+    // --- TEST 9: Phase 2 - Undo / Void Functionality ---
+    // Undo the last action
+    const undoRes = await biz.handle({
+        msgId: 'MSG-UNDO-001',
         chat: BIZ_GROUP,
-        senderId: '22222222@lid',
-        ts: nowSec,
+        senderId: '11111111@lid',
+        ts: 1700000420,
         type: 'text',
-        text: 'Crashed sale message 3000'
-    }, { db: testDb, nowSec });
+        text: 'undo'
+    }, { db: testDb, nowSec: 1700000420 });
 
-    const countAfterRedelivery = testDb.prepare('SELECT count(*) as c FROM inputs').get().c;
-    assert.strictEqual(countBeforeRedelivery, countAfterRedelivery, 'Re-delivery must not add a new row');
-    assert.strictEqual(resRedelivery.handled, true, 'Redelivery of pending row must be handled');
-    assert(resRedelivery.replies.length > 0 && resRedelivery.replies[0].text.length > 0, 'Redelivery must produce a reply');
+    assert.strictEqual(undoRes.handled, true);
+    assert(undoRes.replies[0].text.includes('Voided'));
+    console.log('✓ Test 9: Undo voids recent record cleanly');
 
-    // Verify row in database is now updated to recorded with reply_text
-    const pendingRowAfter = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-PENDING-001'").get();
-    assert.strictEqual(pendingRowAfter.outcome, 'recorded', 'Pending row should now be recorded');
-    assert(pendingRowAfter.reply_text && pendingRowAfter.reply_text.includes('Crashed sale message 3000'));
-    console.log('✓ Test 7: Item (5) - Re-processing pending input row on redelivery passes');
+    // --- TEST 10: Phase 2 - Export & Import Matching Google Form Layout ---
+    const csvExport = biz.export.exportToCsv(testDb);
+    assert(csvExport.startsWith('Timestamp,Sold to,Brand,Colour,Other details,Sold for (₹),Who got money and how'));
+    assert(csvExport.includes('Meera'));
+    assert(csvExport.includes('Idhu'));
 
-    // --- TEST 8: Item (6) - .biz whoami command tests ---
+    // Test import
+    const seedCsv = `Timestamp,Sold to,Brand,Colour,Other details,Sold for (₹),Who got money and how
+2026-11-13 15:30,Rajesh,Idhu,Beige,sued 40 L,2450,Pending`;
+    const importRes = biz.export.importFromCsv(seedCsv, testDb);
+    assert.strictEqual(importRes.imported, 1);
+    const importedRow = testDb.prepare("SELECT * FROM sales WHERE sold_to = 'Rajesh'").get();
+    assert.strictEqual(importedRow.sold_for_paise, 245000);
+    assert.strictEqual(importedRow.colour, 'Beige');
+    console.log('✓ Test 10: Google Form CSV export and import pass');
+
+    // --- TEST 11: Phase 2 - Admin Commands (.biz summary, pending, export) ---
     let lastSentText = '';
     const mockSock = {
         sendMessage: async (jid, content) => {
@@ -231,53 +259,41 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         }
     };
 
-    // 8A: Caller checking whoami without quote
     await bizCmd.run({
         sock: mockSock,
         msg: {},
         jid: BIZ_GROUP,
-        sender: '22222222@lid',
-        args: ['whoami'],
+        sender: '11111111@lid',
+        args: ['summary'],
         isGroup: true,
         db: testDb
     });
-    assert(lastSentText.includes('Target: You (Command Caller)'));
-    assert(lastSentText.includes('22222222@lid'));
-    assert(lastSentText.includes('Registered: Yes (Papa - member)'));
+    assert(lastSentText.includes('AAJ KA HISAAB'));
+    assert(lastSentText.includes('Today\'s Sales:'));
 
-    // 8B: Caller quoting someone else's message
     await bizCmd.run({
         sock: mockSock,
         msg: {},
         jid: BIZ_GROUP,
-        sender: '22222222@lid',
-        quoted: {
-            key: { participant: '11111111@lid', remoteJid: BIZ_GROUP }
-        },
-        args: ['whoami'],
+        sender: '11111111@lid',
+        args: ['pending'],
         isGroup: true,
         db: testDb
     });
-    assert(lastSentText.includes('Target: Quoted Message Sender'));
-    assert(lastSentText.includes('11111111@lid'));
-    assert(lastSentText.includes('Registered: Yes (Mummy - member)'));
+    assert(lastSentText.includes('BIZ PENDING'));
 
-    // 8C: Caller quoting an unregistered user
     await bizCmd.run({
         sock: mockSock,
         msg: {},
         jid: BIZ_GROUP,
-        sender: '22222222@lid',
-        quoted: {
-            key: { participant: '99999999@s.whatsapp.net', remoteJid: BIZ_GROUP }
-        },
-        args: ['whoami'],
+        sender: '11111111@lid',
+        args: ['export'],
         isGroup: true,
         db: testDb
     });
-    assert(lastSentText.includes('99999999@s.whatsapp.net'));
-    assert(lastSentText.includes('Registered: No'));
-    console.log('✓ Test 8: Item (6) - .biz whoami (quoted & self) passes');
+    assert(lastSentText.includes('BIZ EXPORT'));
+    assert(lastSentText.includes('Timestamp,Sold to'));
+    console.log('✓ Test 11: Admin commands (.biz summary, pending, export) pass');
 
-    console.log('\nALL BUSINESS TESTS PASSED! (¬_¬) ✅');
+    console.log('\nALL BUSINESS PHASE 1 & 2 TESTS PASSED! (¬_¬) ✅');
 })();

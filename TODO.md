@@ -22,14 +22,14 @@ Clothes-reselling sale log and money tracker for the family, driven through What
 - [x] Unique `msg_id` for idempotency; replayed messages return the original reply and write nothing.
 
 ### Phase 2: Sale log and payments (same fields as the Google Form sheet)
-- [ ] `sales` table mirroring the form columns: Timestamp, Sold to, Brand, Colour, Other details, Sold for, Who got money and how (plus qty, seller, ids).
-- [ ] `payments` table: amount, mode (cash/UPI/other), received_by, linked to a sale. "Pending" = sale with no payment yet.
-- [ ] Rules parser v1 for Hindi/Hinglish/English sale messages (normalizer, number words, spelling variants such as `sued`/`suit`, payment words, people aliases).
-- [ ] Default rules: price is the total for the row unless "each/per/har ek"; money went to the sender unless another person is named.
-- [ ] If the money status is missing, ask one short question (who got it and how, or pending).
-- [ ] Receipt after every action `(¬_¬) [ BIZ ] ✅ #12 ...`; `undo` and reply-to-receipt corrections (void plus new row, no overwriting).
-- [ ] Settle pending: `Meera ne 2450 cash diye` links a payment to Meera's pending sale; if several pending sales match, show a short numbered list and ask.
-- [ ] Import the existing Google Form responses (CSV/XLSX) as seed data; export back to the exact same column layout.
+- [x] `sales` table mirroring the form columns: Timestamp, Sold to, Brand, Colour, Other details, Sold for, Who got money and how (plus qty, seller, ids).
+- [x] `payments` table: amount, mode (cash/UPI/other), received_by, linked to a sale. "Pending" = sale with no payment yet.
+- [x] Rules parser v1 for Hindi/Hinglish/English sale messages (normalizer, number words, spelling variants such as `sued`/`suit`, payment words, people aliases).
+- [x] Default rules: price is the total for the row unless "each/per/har ek"; money went to the sender unless another person is named.
+- [x] If the money status is missing, ask one short question (who got it and how, or pending).
+- [x] Receipt after every action `(¬_¬) [ BIZ ] ✅ #12 ...`; `undo` and reply-to-receipt corrections (void plus new row, no overwriting).
+- [x] Settle pending: `Meera ne 2450 cash diye` links a payment to Meera's pending sale; if several pending sales match, show a short numbered list and ask.
+- [x] Import the existing Google Form responses (CSV/XLSX) as seed data; export back to the exact same column layout.
 
 ### Phase 3: Reports (read-only queries)
 - [ ] `aaj ka hisaab` (today's sales and collections), `pending` / `udhar` (per customer), person-wise collections, cash vs UPI totals.

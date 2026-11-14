@@ -16,6 +16,7 @@ biz-data/
 *.db-shm
 
 # System / Temp
+safety.json
 .DS_Store
 *.log
 *.tmp
