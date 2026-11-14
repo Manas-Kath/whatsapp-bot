@@ -16,6 +16,7 @@ const config = require('./config');
 const safety = require('./lib/safety');
 const { buildMentionDirectory, replaceIncomingMentions } = require('./lib/mentions');
 const { containsLink } = require('./lib/utils');
+const biz = require('./lib/biz');
 
 // RAM CACHE for anti-delete and performance. Keep the cap strict: high-volume
 // chats can receive more than 1,000 messages before the one-hour TTL expires.
@@ -186,229 +187,269 @@ async function startBunty() {
     }, 60000);
 
     sock.ev.on('messages.upsert', async m => {
-        const msg = m.messages[0];
-        if (!msg.message || m.type !== 'notify') return;
+        if (!m.messages || !m.messages.length) return;
+        if (m.type !== 'notify' && m.type !== 'append') return;
 
-        const key = msg.key;
-        const jid = key.remoteJid;
-        const sender = jidNormalizedUser(key.participant || jid);
-        
-        // AUTO READ
-        if (db.data.settings.auto_read) {
-            try {
-                await sock.readMessages([key]);
-            } catch (e) {}
-        }
-        
-        // Cache messages for anti-delete
-        cacheMessage(key.id, msg);
+        for (const msg of m.messages) {
+            if (!msg.message) continue;
 
-        // Anti-Delete Logic (With Media Restoration & Anti-Spam)
-        if (db.data.settings.anti_delete && msg.message.protocolMessage?.type === 0) {
-            const deletedKeyId = msg.message.protocolMessage.key.id;
-            const oldMsg = msgCache.get(deletedKeyId);
-            if (oldMsg) {
-                if (db.isHardBanned(sender)) return;
-                const adminJid = config.superAdminIds[0];
-                if (!adminJid) return;
-
-                const victim = jidNormalizedUser(oldMsg.key.participant || oldMsg.key.remoteJid);
-                
-                let oType = Object.keys(oldMsg.message || {})[0];
-                if (oType === 'ephemeralMessage' || oType === 'viewOnceMessage' || oType === 'viewOnceMessageV2') {
-                    oldMsg.message = oldMsg.message[oType].message;
-                    oType = Object.keys(oldMsg.message || {})[0];
-                }
-
-                const textContent = oldMsg.message?.conversation || 
-                                  oldMsg.message?.extendedTextMessage?.text || 
-                                  oldMsg.message?.imageMessage?.caption || 
-                                  oldMsg.message?.videoMessage?.caption || '';
-
-                const isMedia = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(oType);
-
-                if (isMedia) {
-                    try {
-                        const { downloadMediaMessage } = require('@whiskeysockets/baileys');
-                        const buffer = await downloadMediaMessage(oldMsg, 'buffer', {});
-                        if (buffer && buffer.length > 0) {
-                            const caption = `(¬_¬) [ DELETED MEDIA ]\nUser: @${victim.split('@')[0]}${textContent ? `\nContent: ${textContent}` : ''}`;
-                            
-                            if (oType === 'imageMessage') {
-                                await sock.sendMessage(adminJid, { image: buffer, caption, mentions: [victim] });
-                            } else if (oType === 'audioMessage') {
-                                await sock.sendMessage(adminJid, { text: caption, mentions: [victim] });
-                                await sock.sendMessage(adminJid, { audio: buffer, ptt: oldMsg.message.audioMessage?.ptt || false });
-                            } else if (oType === 'stickerMessage') {
-                                await sock.sendMessage(adminJid, { text: caption, mentions: [victim] });
-                                await sock.sendMessage(adminJid, { sticker: buffer });
-                            } else if (oType === 'videoMessage') {
-                                await sock.sendMessage(adminJid, { video: buffer, caption, mentions: [victim] });
-                            } else if (oType === 'documentMessage') {
-                                await sock.sendMessage(adminJid, { document: buffer, fileName: oldMsg.message.documentMessage?.fileName || 'file', caption, mentions: [victim] });
-                            }
-                            return;
-                        }
-                    } catch (e) {
-                        // Silent fallback on download fail
-                    }
-                }
-
-                // If pure text message exists
-                if (textContent && textContent.trim().length > 0) {
-                    const report = `(¬_¬) [ DELETED MESSAGE ]\nUser: @${victim.split('@')[0]}\nContent: ${textContent}`;
-                    await sock.sendMessage(adminJid, { text: report, mentions: [victim] });
-                }
-                // (Blank media without downloadable content is ignored to prevent spam)
-            }
-            return;
-        }
-
-        // Hard Ban Enforcer
-        if (db.isHardBanned(sender) && jid.endsWith('@g.us')) {
-            try { await sock.sendMessage(jid, { delete: key }); } catch (e) {}
-            return;
-        }
-
-        // --- ROBUST TEXT EXTRACTION ---
-        let mType = Object.keys(msg.message)[0];
-        if (mType === 'ephemeralMessage' || mType === 'viewOnceMessage' || mType === 'viewOnceMessageV2') {
-            msg.message = msg.message[mType].message;
-            mType = Object.keys(msg.message)[0];
-        }
-        
-        const body = mType === 'conversation' ? msg.message.conversation :
-                     mType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text :
-                     mType === 'imageMessage' ? msg.message.imageMessage.caption :
-                     mType === 'videoMessage' ? msg.message.videoMessage.caption : '';
-
-        const prefix = config.prefix.trim();
-        const isCmd = (body || '').startsWith(prefix);
-        const isSuperAdmin = config.superAdminIds.includes(sender);
-        const isGroup = jid.endsWith('@g.us');
-
-        if (!body && !isCmd) return;
-
-        // Track user display name
-        if (msg.pushName && sender) db.saveUser(sender, msg.pushName);
-
-        let isAdmin = false;
-        if (isGroup) {
-            try {
-                const meta = await getGroupMetadata(sock, jid);
-                const participant = meta.participants.find(p => 
-                    jidNormalizedUser(p.id) === sender || (p.lid && jidNormalizedUser(p.lid) === sender)
-                );
-                isAdmin = participant && (participant.admin === 'admin' || participant.admin === 'superadmin');
-            } catch (e) {}
-        }
-
-        // --- PER-GROUP ANTI-LINK ENFORCER ---
-        if (isGroup && db.isAntilinkEnabled(jid)) {
-            const isExempt = isAdmin || isSuperAdmin || db.isLinkWhitelisted(jid, sender);
-            if (!isExempt && containsLink(body)) {
-                // Strike detected: Delete offending message
+            const key = msg.key;
+            const jid = key.remoteJid;
+            const sender = jidNormalizedUser(key.participant || jid);
+            
+            // AUTO READ
+            if (m.type === 'notify' && db.data.settings.auto_read) {
                 try {
-                    await sock.sendMessage(jid, { delete: key });
+                    await sock.readMessages([key]);
                 } catch (e) {}
-
-                const warningCount = db.addLinkWarning(jid, sender);
-
-                if (warningCount === 1) {
-                    const warnText = `(¬_¬) [ ANTILINK ]\n\n` +
-                                     `Warning [ 1 / 2 ] for @${sender.split('@')[0]}\n` +
-                                     `• Links are prohibited in this group.\n` +
-                                     `• Sending another link will result in removal.`;
-                    await sock.sendMessage(jid, { text: warnText, mentions: [sender] });
-                } else if (warningCount >= 2) {
-                    try {
-                        await sock.groupParticipantsUpdate(jid, [sender], 'remove');
-                        const kickText = `(¬_¬) [ ANTILINK ]\n\n` +
-                                         `@${sender.split('@')[0]} has been removed for sending links (2/2 strikes).`;
-                        await sock.sendMessage(jid, { text: kickText, mentions: [sender] });
-                        db.resetLinkWarnings(jid, sender);
-                    } catch (e) {
-                        const failText = `(¬_¬) [ ANTILINK ]\n\n` +
-                                         `@${sender.split('@')[0]} reached strike 2/2 for sending links.\n` +
-                                         `• Failed to remove user: bot needs Admin privileges.`;
-                        await sock.sendMessage(jid, { text: failText, mentions: [sender] });
-                    }
-                }
-                return; // Stop processing further commands or AI for this link message
             }
-        }
+            
+            // Cache messages for anti-delete
+            cacheMessage(key.id, msg);
 
-        // --- ROBUST QUOTED MESSAGE EXTRACTION ---
-        let quoted = null;
-        const contextInfo = msg.message.extendedTextMessage?.contextInfo || 
-                          msg.message[mType]?.contextInfo;
-        
-        if (contextInfo?.quotedMessage) {
-            let qMsg = contextInfo.quotedMessage;
-            let qType = Object.keys(qMsg)[0];
-            if (qType === 'ephemeralMessage' || qType === 'viewOnceMessage' || qType === 'viewOnceMessageV2') {
-                qMsg = qMsg[qType].message;
-                qType = Object.keys(qMsg)[0];
+            // Anti-Delete Logic (With Media Restoration & Anti-Spam)
+            if (m.type === 'notify' && db.data.settings.anti_delete && msg.message.protocolMessage?.type === 0) {
+                const deletedKeyId = msg.message.protocolMessage.key.id;
+                const oldMsg = msgCache.get(deletedKeyId);
+                if (oldMsg) {
+                    if (db.isHardBanned(sender)) continue;
+                    const adminJid = config.superAdminIds[0];
+                    if (!adminJid) continue;
+
+                    const victim = jidNormalizedUser(oldMsg.key.participant || oldMsg.key.remoteJid);
+                    
+                    let oType = Object.keys(oldMsg.message || {})[0];
+                    if (oType === 'ephemeralMessage' || oType === 'viewOnceMessage' || oType === 'viewOnceMessageV2') {
+                        oldMsg.message = oldMsg.message[oType].message;
+                        oType = Object.keys(oldMsg.message || {})[0];
+                    }
+
+                    const textContent = oldMsg.message?.conversation || 
+                                      oldMsg.message?.extendedTextMessage?.text || 
+                                      oldMsg.message?.imageMessage?.caption || 
+                                      oldMsg.message?.videoMessage?.caption || '';
+
+                    const isMedia = ['imageMessage', 'videoMessage', 'audioMessage', 'stickerMessage', 'documentMessage'].includes(oType);
+
+                    if (isMedia) {
+                        try {
+                            const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+                            const buffer = await downloadMediaMessage(oldMsg, 'buffer', {});
+                            if (buffer && buffer.length > 0) {
+                                const caption = `(¬_¬) [ DELETED MEDIA ]\nUser: @${victim.split('@')[0]}${textContent ? `\nContent: ${textContent}` : ''}`;
+                                
+                                if (oType === 'imageMessage') {
+                                    await sock.sendMessage(adminJid, { image: buffer, caption, mentions: [victim] });
+                                } else if (oType === 'audioMessage') {
+                                    await sock.sendMessage(adminJid, { text: caption, mentions: [victim] });
+                                    await sock.sendMessage(adminJid, { audio: buffer, ptt: oldMsg.message.audioMessage?.ptt || false });
+                                } else if (oType === 'stickerMessage') {
+                                    await sock.sendMessage(adminJid, { text: caption, mentions: [victim] });
+                                    await sock.sendMessage(adminJid, { sticker: buffer });
+                                } else if (oType === 'videoMessage') {
+                                    await sock.sendMessage(adminJid, { video: buffer, caption, mentions: [victim] });
+                                } else if (oType === 'documentMessage') {
+                                    await sock.sendMessage(adminJid, { document: buffer, fileName: oldMsg.message.documentMessage?.fileName || 'file', caption, mentions: [victim] });
+                                }
+                                continue;
+                            }
+                        } catch (e) {
+                            // Silent fallback on download fail
+                        }
+                    }
+
+                    // If pure text message exists
+                    if (textContent && textContent.trim().length > 0) {
+                        const report = `(¬_¬) [ DELETED MESSAGE ]\nUser: @${victim.split('@')[0]}\nContent: ${textContent}`;
+                        await sock.sendMessage(adminJid, { text: report, mentions: [victim] });
+                    }
+                    // (Blank media without downloadable content is ignored to prevent spam)
+                }
+                continue;
             }
-            quoted = {
-                message: qMsg,
-                key: {
-                    remoteJid: jid,
-                    fromMe: contextInfo.participant === jidNormalizedUser(sock.user.id),
-                    id: contextInfo.stanzaId,
-                    participant: contextInfo.participant
-                }
-            };
-        }
 
-        const ctx = { sock, msg, jid, sender, isGroup, body: (body || ''), isSuperAdmin, quoted, isAdmin };
+            // Hard Ban Enforcer
+            if (db.isHardBanned(sender) && jid.endsWith('@g.us')) {
+                try { await sock.sendMessage(jid, { delete: key }); } catch (e) {}
+                continue;
+            }
 
-        const ran = await handleCommand(ctx);
+            // --- ROBUST TEXT EXTRACTION ---
+            let mType = Object.keys(msg.message)[0];
+            if (mType === 'ephemeralMessage' || mType === 'viewOnceMessage' || mType === 'viewOnceMessageV2') {
+                msg.message = msg.message[mType].message;
+                mType = Object.keys(msg.message)[0];
+            }
+            
+            const body = mType === 'conversation' ? msg.message.conversation :
+                         mType === 'extendedTextMessage' ? msg.message.extendedTextMessage.text :
+                         mType === 'imageMessage' ? msg.message.imageMessage.caption :
+                         mType === 'videoMessage' ? msg.message.videoMessage.caption : '';
 
-        // AI Logic
-        if (!ran && db.data.settings.ai_enabled && !db.isBanned(sender)) {
-            if (!safety.shouldEnableAI()) return;
+            // Ignore bot's own generated responses
+            if (key.fromMe && (body || '').startsWith('(¬_¬)')) {
+                continue;
+            }
 
-            const botId = jidNormalizedUser(sock.user.id);
-            const botLid = sock.user.lid ? jidNormalizedUser(sock.user.lid) : null;
-            const mentions = contextInfo?.mentionedJid || [];
-            const isMentioned = mentions.some(id => {
-                const norm = jidNormalizedUser(id);
-                return norm === botId || norm === botLid;
-            });
-            const replyParticipant = contextInfo?.participant ? jidNormalizedUser(contextInfo.participant) : null;
-            const isReplyToBot = replyParticipant && (replyParticipant === botId || replyParticipant === botLid);
+            const prefix = config.prefix.trim();
+            const isCmd = (body || '').startsWith(prefix);
+            const isMemo = (body || '').trim().toLowerCase().startsWith('#memo');
+            const isSuperAdmin = config.superAdminIds.includes(sender);
+            const isGroup = jid.endsWith('@g.us');
 
-            if (isMentioned || isReplyToBot) {
-                const aiCmd = require('./commands/ai/ask');
-                let prompt = body;
-                if (isMentioned) {
-                    const botMentionIds = [botId, botLid]
-                        .filter(Boolean)
-                        .map(id => id.split('@')[0]);
-                    for (const identifier of botMentionIds) {
-                        prompt = prompt.replace(new RegExp(`@${identifier}\\b`, 'g'), '');
-                    }
-                    prompt = prompt.trim();
-                }
-                if (!prompt && ctx.quoted) {
-                    const qType = Object.keys(ctx.quoted.message)[0];
-                    prompt = ctx.quoted.message.conversation || ctx.quoted.message.extendedTextMessage?.text || 
-                             ctx.quoted.message[qType]?.caption || "Explain this.";
-                }
-                if (!prompt) prompt = "Yo";
+            if (!body && !isCmd && !['imageMessage', 'audioMessage'].includes(mType)) continue;
 
-                let mentionDirectory = [];
-                if (isGroup) {
+            // Track user display name
+            if (msg.pushName && sender) db.saveUser(sender, msg.pushName);
+
+            let isAdmin = false;
+            if (isGroup) {
+                try {
+                    const meta = await getGroupMetadata(sock, jid);
+                    const participant = meta.participants.find(p => 
+                        jidNormalizedUser(p.id) === sender || (p.lid && jidNormalizedUser(p.lid) === sender)
+                    );
+                    isAdmin = participant && (participant.admin === 'admin' || participant.admin === 'superadmin');
+                } catch (e) {}
+            }
+
+            // --- PER-GROUP ANTI-LINK ENFORCER ---
+            if (isGroup && db.isAntilinkEnabled(jid)) {
+                const isExempt = isAdmin || isSuperAdmin || db.isLinkWhitelisted(jid, sender);
+                if (!isExempt && containsLink(body)) {
+                    // Strike detected: Delete offending message
                     try {
-                        mentionDirectory = buildMentionDirectory(await getGroupMetadata(sock, jid));
-                        prompt = replaceIncomingMentions(prompt, mentionDirectory);
-                    } catch (error) {
-                        console.warn('Could not load group members for mention resolution:', error.message);
-                    }
-                }
+                        await sock.sendMessage(jid, { delete: key });
+                    } catch (e) {}
 
-                await aiCmd.run({ ...ctx, text: prompt, mentionDirectory });
+                    const warningCount = db.addLinkWarning(jid, sender);
+
+                    if (warningCount === 1) {
+                        const warnText = `(¬_¬) [ ANTILINK ]\n\n` +
+                                         `Warning [ 1 / 2 ] for @${sender.split('@')[0]}\n` +
+                                         `• Links are prohibited in this group.\n` +
+                                         `• Sending another link will result in removal.`;
+                        await sock.sendMessage(jid, { text: warnText, mentions: [sender] });
+                    } else if (warningCount >= 2) {
+                        try {
+                            await sock.groupParticipantsUpdate(jid, [sender], 'remove');
+                            const kickText = `(¬_¬) [ ANTILINK ]\n\n` +
+                                             `@${sender.split('@')[0]} has been removed for sending links (2/2 strikes).`;
+                            await sock.sendMessage(jid, { text: kickText, mentions: [sender] });
+                            db.resetLinkWarnings(jid, sender);
+                        } catch (e) {
+                            const failText = `(¬_¬) [ ANTILINK ]\n\n` +
+                                             `@${sender.split('@')[0]} reached strike 2/2 for sending links.\n` +
+                                             `• Failed to remove user: bot needs Admin privileges.`;
+                            await sock.sendMessage(jid, { text: failText, mentions: [sender] });
+                        }
+                    }
+                    continue; // Stop processing further commands or AI for this link message
+                }
+            }
+
+            // --- ROBUST QUOTED MESSAGE EXTRACTION ---
+            let quoted = null;
+            const contextInfo = msg.message.extendedTextMessage?.contextInfo || 
+                              msg.message[mType]?.contextInfo;
+            
+            if (contextInfo?.quotedMessage) {
+                let qMsg = contextInfo.quotedMessage;
+                let qType = Object.keys(qMsg)[0];
+                if (qType === 'ephemeralMessage' || qType === 'viewOnceMessage' || qType === 'viewOnceMessageV2') {
+                    qMsg = qMsg[qType].message;
+                    qType = Object.keys(qMsg)[0];
+                }
+                quoted = {
+                    message: qMsg,
+                    key: {
+                        remoteJid: jid,
+                        fromMe: contextInfo.participant === jidNormalizedUser(sock.user.id),
+                        id: contextInfo.stanzaId,
+                        participant: contextInfo.participant
+                    }
+                };
+            }
+
+            const ctx = { sock, msg, jid, sender, isGroup, body: (body || ''), isSuperAdmin, quoted, isAdmin };
+
+            // 1. Bunty commands and #memo (only on live notify)
+            if (isCmd || isMemo) {
+                if (m.type === 'notify') {
+                    await handleCommand(ctx);
+                }
+                continue;
+            }
+
+            // 2. Business Module Router (before AI Safe Mode, processes notify & append)
+            try {
+                const bizInput = {
+                    msgId: key.id,
+                    chat: jid,
+                    senderId: sender,
+                    ts: msg.messageTimestamp,
+                    type: mType === 'imageMessage' ? 'image' : mType === 'audioMessage' ? 'audio' : 'text',
+                    text: body,
+                    quotedText: ctx.quoted?.message?.conversation || ctx.quoted?.message?.extendedTextMessage?.text || null
+                };
+                const bizResult = await biz.handle(bizInput);
+                if (bizResult && bizResult.handled) {
+                    for (const rep of (bizResult.replies || [])) {
+                        if (rep && rep.text) {
+                            await sock.sendMessage(jid, { text: rep.text }, { quoted: msg });
+                        }
+                    }
+                    continue;
+                }
+            } catch (bizErr) {
+                console.error('[BIZ] Uncaught router error:', bizErr);
+            }
+
+            // 3. AI Logic (Only for live notify events)
+            if (m.type === 'notify' && db.data.settings.ai_enabled && !db.isBanned(sender)) {
+                if (!safety.shouldEnableAI()) continue;
+
+                const botId = jidNormalizedUser(sock.user.id);
+                const botLid = sock.user.lid ? jidNormalizedUser(sock.user.lid) : null;
+                const mentions = contextInfo?.mentionedJid || [];
+                const isMentioned = mentions.some(id => {
+                    const norm = jidNormalizedUser(id);
+                    return norm === botId || norm === botLid;
+                });
+                const replyParticipant = contextInfo?.participant ? jidNormalizedUser(contextInfo.participant) : null;
+                const isReplyToBot = replyParticipant && (replyParticipant === botId || replyParticipant === botLid);
+
+                if (isMentioned || isReplyToBot) {
+                    const aiCmd = require('./commands/ai/ask');
+                    let prompt = body;
+                    if (isMentioned) {
+                        const botMentionIds = [botId, botLid]
+                            .filter(Boolean)
+                            .map(id => id.split('@')[0]);
+                        for (const identifier of botMentionIds) {
+                            prompt = prompt.replace(new RegExp(`@${identifier}\\b`, 'g'), '');
+                        }
+                        prompt = prompt.trim();
+                    }
+                    if (!prompt && ctx.quoted) {
+                        const qType = Object.keys(ctx.quoted.message)[0];
+                        prompt = ctx.quoted.message.conversation || ctx.quoted.message.extendedTextMessage?.text || 
+                                 ctx.quoted.message[qType]?.caption || "Explain this.";
+                    }
+                    if (!prompt) prompt = "Yo";
+
+                    let mentionDirectory = [];
+                    if (isGroup) {
+                        try {
+                            mentionDirectory = buildMentionDirectory(await getGroupMetadata(sock, jid));
+                            prompt = replaceIncomingMentions(prompt, mentionDirectory);
+                        } catch (error) {
+                            console.warn('Could not load group members for mention resolution:', error.message);
+                        }
+                    }
+
+                    await aiCmd.run({ ...ctx, text: prompt, mentionDirectory });
+                }
             }
         }
     });
