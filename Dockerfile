@@ -1,5 +1,5 @@
-# Bunty v5.6 - Debian Home Server Dockerfile
-FROM node:20-alpine
+# Bunty - Debian Home Server Dockerfile
+FROM node:22-alpine
 
 # Install ffmpeg for voice note & sticker conversion
 RUN apk add --no-cache ffmpeg python3 make g++

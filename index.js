@@ -269,7 +269,7 @@ async function startBunty() {
             }
 
             // Hard Ban Enforcer
-            if (db.isHardBanned(sender) && jid.endsWith('@g.us')) {
+            if (m.type === 'notify' && db.isHardBanned(sender) && jid.endsWith('@g.us')) {
                 try { await sock.sendMessage(jid, { delete: key }); } catch (e) {}
                 continue;
             }
@@ -314,7 +314,7 @@ async function startBunty() {
             }
 
             // --- PER-GROUP ANTI-LINK ENFORCER ---
-            if (isGroup && db.isAntilinkEnabled(jid)) {
+            if (m.type === 'notify' && isGroup && db.isAntilinkEnabled(jid)) {
                 const isExempt = isAdmin || isSuperAdmin || db.isLinkWhitelisted(jid, sender);
                 if (!isExempt && containsLink(body)) {
                     // Strike detected: Delete offending message

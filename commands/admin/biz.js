@@ -1,4 +1,5 @@
 const biz = require('../../lib/biz');
+const { jidNormalizedUser } = require('@whiskeysockets/baileys');
 
 module.exports = {
     name: 'biz',
@@ -12,6 +13,7 @@ module.exports = {
 
         if (!sub || sub === 'help') {
             const helpText = `(¬_¬) [ BIZ ADMIN ]\n\n` +
+                `• \`.biz whoami\` - Show sender ID (or reply to a message to get quoted sender's ID)\n` +
                 `• \`.biz status\` - Overview of business DB & settings\n` +
                 `• \`.biz setgroup\` - Set current group as official business group\n` +
                 `• \`.biz adduser <name> <role> <id> [alias1,alias2]\` - Register family member\n` +
@@ -20,15 +22,44 @@ module.exports = {
             return sock.sendMessage(jid, { text: helpText }, { quoted: msg });
         }
 
-        const db = biz.db.getDb();
+        const db = ctx.db || biz.db.getDb();
+
+        if (sub === 'whoami') {
+            let targetJid = null;
+            let isQuoted = false;
+
+            if (ctx.quoted && ctx.quoted.key) {
+                targetJid = ctx.quoted.key.participant || ctx.quoted.key.remoteJid;
+                isQuoted = true;
+            } else {
+                targetJid = ctx.sender;
+            }
+
+            const normalizedJid = targetJid ? jidNormalizedUser(targetJid) : null;
+            const person = normalizedJid ? biz.people.findPersonByIdentifier(normalizedJid, db) : null;
+
+            let text = `(¬_¬) [ BIZ WHOAMI ]\n\n` +
+                `• Target: ${isQuoted ? 'Quoted Message Sender' : 'You (Command Caller)'}\n` +
+                `• Raw ID: \`${targetJid || 'Unknown'}\`\n` +
+                `• Normalized ID: \`${normalizedJid || 'Unknown'}\`\n` +
+                `• Registered: ${person ? `Yes (${person.name} - ${person.role})` : 'No'}`;
+
+            if (!isQuoted) {
+                text += `\n\n_(Tip: Reply to someone's message with \`.biz whoami\` to view their exact ID for registration)_`;
+            }
+
+            return sock.sendMessage(jid, { text }, { quoted: msg });
+        }
 
         if (sub === 'status') {
             const bizGroup = biz.db.getSetting('biz_group_jid', db) || process.env.BIZ_GROUP_JID || 'Not configured';
+            const maxAgeHours = biz.db.getSetting('biz_max_msg_age_hours', db) || process.env.BIZ_MAX_MSG_AGE_HOURS || '24';
             const peopleCount = db.prepare('SELECT count(*) as count FROM people').get().count;
             const inputCount = db.prepare('SELECT count(*) as count FROM inputs').get().count;
 
             const statusText = `(¬_¬) [ BIZ STATUS ]\n\n` +
                 `• Business Group: \`${bizGroup}\`\n` +
+                `• Max Msg Age: ${maxAgeHours} hours\n` +
                 `• Registered People: ${peopleCount}\n` +
                 `• Total Inputs Logged: ${inputCount}\n` +
                 `• SQLite WAL Mode: Enabled`;
