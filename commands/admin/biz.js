@@ -16,6 +16,8 @@ module.exports = {
                 `• \`.biz whoami\` - Show sender ID (or reply to a message)\n` +
                 `• \`.biz summary\` - Today's sales, collections & pending\n` +
                 `• \`.biz pending\` - List all pending sales\n` +
+                `• \`.biz sync\` - Sync entries between Google Sheet and database\n` +
+                `• \`.biz setsheet <url>\` - Link Google Sheet Web App URL\n` +
                 `• \`.biz export\` - Export sales in Google Form CSV layout\n` +
                 `• \`.biz status\` - Overview of business DB & settings\n` +
                 `• \`.biz setgroup\` - Set current group as official business group\n` +
@@ -87,8 +89,32 @@ module.exports = {
             return sock.sendMessage(jid, { text }, { quoted: msg });
         }
 
+        if (sub === 'setsheet') {
+            const url = args[1];
+            if (!url || !url.startsWith('http')) {
+                return sock.sendMessage(jid, {
+                    text: `(¬_¬) [ BIZ ]\n\nUsage: \`.biz setsheet <Google_Apps_Script_Web_App_URL>\`\n\nSee GUIDE_GOOGLE_SHEETS.md for 2-minute setup instructions.`
+                }, { quoted: msg });
+            }
+            biz.db.setSetting('biz_sheets_url', url.trim(), db);
+            return sock.sendMessage(jid, {
+                text: `(¬_¬) [ BIZ ] ✅\n\nGoogle Sheets Web App linked successfully!\nSales will now be mirrored in real-time.\nUse \`.biz sync\` to pull any new Google Form entries.`
+            }, { quoted: msg });
+        }
+
+        if (sub === 'sync') {
+            const syncRes = await biz.sheets.syncAll(db);
+            if (!syncRes.success) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ SYNC ] ❌\n\n${syncRes.error}` }, { quoted: msg });
+            }
+            return sock.sendMessage(jid, {
+                text: `(¬_¬) [ BIZ SYNC ] ✅\n\n• Pulled from Sheet: ${syncRes.pulled} new entries\n• Status: Database & Google Sheet are in sync!`
+            }, { quoted: msg });
+        }
+
         if (sub === 'status') {
             const bizGroup = biz.db.getSetting('biz_group_jid', db) || process.env.BIZ_GROUP_JID || 'Not configured';
+            const sheetUrl = biz.sheets.isEnabled(db) ? 'Linked & Active' : 'Not configured (use .biz setsheet)';
             const maxAgeHours = biz.db.getSetting('biz_max_msg_age_hours', db) || process.env.BIZ_MAX_MSG_AGE_HOURS || '24';
             const peopleCount = db.prepare('SELECT count(*) as count FROM people').get().count;
             const inputCount = db.prepare('SELECT count(*) as count FROM inputs').get().count;
@@ -96,6 +122,7 @@ module.exports = {
 
             const statusText = `(¬_¬) [ BIZ STATUS ]\n\n` +
                 `• Business Group: \`${bizGroup}\`\n` +
+                `• Google Sheets: ${sheetUrl}\n` +
                 `• Max Msg Age: ${maxAgeHours} hours\n` +
                 `• Registered People: ${peopleCount}\n` +
                 `• Active Sales: ${salesCount}\n` +

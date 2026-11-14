@@ -295,5 +295,108 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert(lastSentText.includes('Timestamp,Sold to'));
     console.log('✓ Test 11: Admin commands (.biz summary, pending, export) pass');
 
+    // --- TEST 12: Google Sheets Sync (Outbound & Inbound) ---
+    assert.strictEqual(biz.sheets.isEnabled(testDb), false, 'Initially disabled without URL');
+
+    // Test .biz setsheet command
+    await bizCmd.run({
+        sock: mockSock,
+        msg: {},
+        jid: BIZ_GROUP,
+        sender: '11111111@lid',
+        args: ['setsheet', 'https://script.google.com/macros/s/TEST/exec'],
+        isGroup: true,
+        db: testDb
+    });
+    assert(lastSentText.includes('Google Sheets Web App linked successfully'));
+    assert.strictEqual(biz.sheets.isEnabled(testDb), true);
+
+    // Mock global fetch for testing outbound & inbound sheet syncing
+    const originalFetch = global.fetch;
+    let lastPostPayload = null;
+    let mockGetRows = [];
+
+    global.fetch = async (url, options = {}) => {
+        if (options.method === 'POST') {
+            lastPostPayload = JSON.parse(options.body);
+            return {
+                json: async () => ({ success: true, row: 10 })
+            };
+        }
+        if (!options.method || options.method === 'GET') {
+            return {
+                json: async () => ({
+                    success: true,
+                    last_row: 5,
+                    rows: mockGetRows
+                })
+            };
+        }
+    };
+
+    try {
+        // Test outbound push
+        const testSale = {
+            id: 99,
+            ts: 1700000000,
+            sold_to: 'Simran',
+            brand: 'Idhu',
+            colour: 'Wine',
+            other_details: 'Suit 40',
+            sold_for_paise: 250000,
+            money_note: 'Pending'
+        };
+        const pushRes = await biz.sheets.pushSale(testSale, testDb);
+        assert.strictEqual(pushRes.success, true);
+        assert.strictEqual(lastPostPayload.action, 'append_sale');
+        assert.strictEqual(lastPostPayload.sold_to, 'Simran');
+        assert.strictEqual(lastPostPayload.amount, 2500);
+
+        // Test payment update push
+        const payPushRes = await biz.sheets.pushPayment(testSale, 'Cash - Mummy', testDb);
+        assert.strictEqual(payPushRes.success, true);
+        assert.strictEqual(lastPostPayload.action, 'update_payment');
+        assert.strictEqual(lastPostPayload.money_note, 'Cash - Mummy');
+
+        // Test inbound pull: simulate new row submitted via Google Form
+        mockGetRows = [
+            {
+                row_number: 5,
+                timestamp: '2026-11-14 18:00',
+                sold_to: 'Kavita',
+                brand: 'Varun',
+                colour: 'Green',
+                other_details: 'Suit 38 M',
+                amount: 1800,
+                money_note: 'Pending',
+                bunty_id: '' // Empty because it was entered via Google Form!
+            }
+        ];
+
+        const pullRes = await biz.sheets.pullNewRows(testDb);
+        assert.strictEqual(pullRes.success, true);
+        assert.strictEqual(pullRes.pulled, 1);
+
+        const kavitaRow = testDb.prepare("SELECT * FROM sales WHERE sold_to = 'Kavita'").get();
+        assert(kavitaRow, 'Google Form entry should be imported into sales');
+        assert.strictEqual(kavitaRow.sold_for_paise, 180000);
+        assert.strictEqual(kavitaRow.colour, 'Green');
+
+        // Test .biz sync command
+        await bizCmd.run({
+            sock: mockSock,
+            msg: {},
+            jid: BIZ_GROUP,
+            sender: '11111111@lid',
+            args: ['sync'],
+            isGroup: true,
+            db: testDb
+        });
+        assert(lastSentText.includes('BIZ SYNC'));
+        console.log('✓ Test 12: Google Sheets two-way sync (outbound push & inbound pull) passes');
+    } finally {
+        global.fetch = originalFetch;
+    }
+
     console.log('\nALL BUSINESS PHASE 1 & 2 TESTS PASSED! (¬_¬) ✅');
 })();

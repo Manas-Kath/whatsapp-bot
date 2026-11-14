@@ -186,6 +186,17 @@ async function startBunty() {
         }
     }, 60000);
 
+    // Inbound Google Sheets sync watchdog (pulls Google Form responses every 10 mins)
+    setInterval(async () => {
+        try {
+            if (biz.sheets.isEnabled()) {
+                await biz.sheets.pullNewRows();
+            }
+        } catch (e) {
+            console.error('[SHEETS WATCHDOG] Periodic pull error:', e.message);
+        }
+    }, 10 * 60 * 1000);
+
     sock.ev.on('messages.upsert', async m => {
         if (!m.messages || !m.messages.length) return;
         if (m.type !== 'notify' && m.type !== 'append') return;
