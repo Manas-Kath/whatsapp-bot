@@ -16,10 +16,12 @@ Clothes-reselling sale log and money tracker for the family, driven through What
 ### Phase 1: `lib/biz` skeleton, identity, input log
 - [x] `lib/biz/index.js` exposing one entry point `handle(input) -> { replies }` with no imports from Bunty's `database.js`, Gemini, or `memory.js` (keeps it movable into its own container later).
 - [x] DB init and migrations (`better-sqlite3`, WAL mode).
-- [x] `people` table (the four family members) with aliases (Mom/Mummy, Dad/Papa, Aunt, ...); super-admin-only registration command that stores the exact sender IDs (LID and phone JID) seen in logs.
+- [x] `people` table with aliases; owner/super-admin commands register and manage users while storing exact sender IDs (LID and phone JID).
 - [x] Allowed chats: one business group plus DMs; everything else ignored. Unauthorized senders get no reply.
 - [x] **`inputs` table: every business input from an authorized person is stored before any processing** (raw text, transcript if voice, normalized text, which stage handled it, parser version, parsed result, outcome, final confirmed result, errors, latency). This is the dataset for all future improvements.
 - [x] Unique `msg_id` for idempotency; replayed messages return the original reply and write nothing.
+- [x] Final input outcomes distinguish recorded, asked, corrected, undone, query, chitchat, media_unprocessed, unparsed, stale, rejected, and error; incomplete processing remains NULL.
+- [x] Owner and super-admin user management: edit users, attach IDs, deactivate and restore accounts, and protect the last active owner.
 
 ### Phase 2: Sale log and payments (same fields as the Google Form sheet)
 - [x] `sales` table mirroring the form columns: Timestamp, Sold to, Brand, Colour, Other details, Sold for, Who got money and how (plus qty, seller, ids).
@@ -34,32 +36,50 @@ Clothes-reselling sale log and money tracker for the family, driven through What
 ### Phase 3: Reports (read-only queries)
 - [x] `aaj ka hisaab` (today's sales and collections), `pending` / `udhar` (per customer), person-wise collections, cash vs UPI totals.
 
-### Phase 4: Purchases, expenses, transfers (build when needed)
+### Phase 4: Purchases, expenses, transfers — POSTPONED until after the pilot
 - [ ] Carton purchases, shipping/packaging and other expenses, transfers between family members and accounts.
 - [ ] Revisit the money model here: move to double-entry-lite ledger if net profit, cash balances and transfers need it (payments already carry cash/UPI and receiver, so they map cleanly).
 - [ ] Optional batch-level stock (no per-article registration, no cross-day context resolution unless a real need appears).
 
-### Phase 5: Use the stored inputs
+### Phase 5: Use the stored inputs — POSTPONED until after the pilot
 - [ ] Replay script: run every stored input through the current parser and compare with the confirmed `final_json` (regression tests built from real family messages).
 - [ ] Weekly review: unparsed and corrected messages, to extend the lexicon and rules.
 - [ ] Tiny intent classifier (char n-gram + logistic regression) trained offline from `inputs`, exported as a weights JSON, run in JS. Only if rules plateau.
 - [ ] `export inputs` command: JSONL dump for training/evaluation.
 
-### Phase 6: Optional cloud LLM fallback (never required)
+### Phase 6: Optional cloud LLM fallback — POSTPONED until after the pilot
 - [ ] Separate Google Cloud project/quota from Bunty's `.ask`; JSON-schema output; every extracted number must appear in the normalized input; fall back to "supported format" reply when unavailable.
 
-### Phase 7: Voice
+### Phase 7: Voice — POSTPONED until after the pilot
 - [ ] First: ask family to use the keyboard mic (Gboard voice typing).
 - [ ] Then voice notes (ffmpeg conversion already exists) with Vosk small Hindi or a cloud ASR; amounts from voice always confirmed. Store transcript in `inputs`; audio kept only if `BIZ_KEEP_AUDIO=1`.
 
-### Phase 8: Payment screenshots
+### Phase 8: Payment screenshots — POSTPONED until after the pilot
 - [ ] Tesseract (Hindi+English) as a one-at-a-time subprocess; crop amount/UTR; claims keyed by UTR; reconcile with bank statement CSV; delete the image after extraction (keep SHA-256, UTR, amount, time).
 
-### Phase 9: Later
+### Phase 9: Operations complete; optional mirror/container work POSTPONED until after the pilot
 - [x] Nightly rotating SQLite backups and manual backup command.
-- [ ] Document and test a database restore procedure.
-- [ ] Google Sheets/Datasette read-only mirror.
-- [ ] Move `lib/biz` into its own container only if a real need appears (memory, crashes, second interface).
+- [x] Document and test a database restore procedure.
+- [ ] Google Sheets/Datasette read-only mirror (POSTPONED until after the pilot).
+- [ ] Move `lib/biz` into its own container only if a real need appears (POSTPONED until after the pilot).
+
+## Restore
+
+Stop Bunty before restoring. Use a verified rotating backup; the script checks SQLite integrity and preserves the current database as `biz.db.before-restore`:
+
+```bash
+node scripts/restore-biz.js biz-data/backups/<backup-file>.db --force
+```
+
+Restart Bunty after the restore and confirm `.biz status` reports the expected counts.
+
+## Go-live checklist
+
+- [ ] Take and verify a backup; start with a fresh `biz-data/biz.db` for the pilot.
+- [ ] Register the four family members with their WhatsApp IDs and aliases.
+- [ ] Run `.biz setgroup` in the business group.
+- [ ] Set `GOOGLE_SHEET_SYNC_SECRET` in Bunty and the matching Apps Script `SECRET_TOKEN`.
+- [ ] Keep the Google Form running in parallel with WhatsApp logging for one week; reconcile entries before switching over.
 
 ---
 

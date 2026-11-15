@@ -458,6 +458,13 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     });
     assert(lastSentText.includes('BIZ EXPORT'));
     assert(lastSentText.includes('Timestamp,Sold to'));
+    await bizCmd.run({
+        sock: mockSock, msg: {}, jid: BIZ_GROUP, sender: '11111111@lid',
+        isSuperAdmin: true, args: ['status'], isGroup: true, db: testDb
+    });
+    assert(lastSentText.includes('DB Schema Version: v2'));
+    assert(lastSentText.includes('Inputs by outcome:'));
+    assert(lastSentText.includes('chitchat: 1'));
     console.log('✓ Test 11: Admin commands (.biz summary, pending, export) pass');
 
     // --- TEST 12: Google Sheets Sync (Outbound & Inbound) ---

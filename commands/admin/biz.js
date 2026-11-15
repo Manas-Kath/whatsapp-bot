@@ -191,14 +191,20 @@ module.exports = {
             const peopleCount = db.prepare('SELECT count(*) as count FROM people').get().count;
             const inputCount = db.prepare('SELECT count(*) as count FROM inputs').get().count;
             const salesCount = db.prepare("SELECT count(*) as count FROM sales WHERE status = 'active'").get().count;
+            const outcomes = ['recorded', 'asked', 'corrected', 'undone', 'query', 'chitchat', 'media_unprocessed', 'unparsed', 'stale', 'rejected', 'error'];
+            const outcomeCounts = db.prepare('SELECT outcome, count(*) AS count FROM inputs GROUP BY outcome').all()
+                .reduce((counts, row) => ({ ...counts, [row.outcome]: row.count }), {});
+            const inputCountsText = outcomes.map(outcome => `  ${outcome}: ${outcomeCounts[outcome] || 0}`).join('\n');
 
             const statusText = `(¬_¬) [ BIZ STATUS ]\n\n` +
                 `• Business Group: \`${bizGroup}\`\n` +
                 `• Google Sheets: ${sheetUrl}\n` +
                 `• Max Msg Age: ${maxAgeHours} hours\n` +
+                `• DB Schema Version: v${biz.db.getSchemaVersion(db)}\n` +
                 `• Registered People: ${peopleCount}\n` +
                 `• Active Sales: ${salesCount}\n` +
                 `• Total Inputs Logged: ${inputCount}\n` +
+                `• Inputs by outcome:\n${inputCountsText}\n` +
                 `• SQLite WAL Mode: Enabled`;
             return sock.sendMessage(jid, { text: statusText }, { quoted: msg });
         }

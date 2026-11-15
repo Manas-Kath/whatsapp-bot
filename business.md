@@ -307,17 +307,29 @@ Payment screenshots
 ## 12. Operational notes
 
 - SQLite lives in a directory volume; never bind-mount the `.db` file alone.
-- Nightly backup with SQLite's `.backup` or `VACUUM INTO` into a backups folder, keep a rotating set, copy off the server periodically, and test a restore. Set this up early; the `inputs` table is also training data.
+- Nightly rotating backups use `VACUUM INTO` and verify each file with `PRAGMA integrity_check`. Restore only while Bunty is stopped: `node scripts/restore-biz.js <backup-file> --force`. The current database is preserved as `biz.db.before-restore`.
 - Baileys is unofficial if the bot number is restricted or logged out (see the `.groupadd` notes in `GEMINI.md`), business data stays intact in SQLite. A second interface can be added later if needed.
 - Logs must not contain full payment screenshot data or account details.
 
 ---
 
-## 13. Roadmap
+## 13. Restore
 
-See `TODO.md`, section Business Module. Order 0 Bunty prerequisites, 1 `libbiz` skeleton and input log, 2 sale log and payments (sheet format), 3 reports, 4 purchasesexpensestransfers, 5 use stored inputs (replay tests, classifier), 6 optional LLM fallback, 7 voice, 8 screenshots, 9 backupsmirroroptional container.
+Stop Bunty before restoring. The restore script requires `--force`, validates the backup, saves the current database as `biz.db.before-restore`, and then restores the selected snapshot. Restart Bunty and check `.biz status` afterward.
 
-## 14. Open questions
+## 14. Go-live checklist
+
+- Take a verified backup and begin with a fresh `biz-data/biz.db` for the pilot.
+- Register Mom, Dad, Aunt, and the owner with their WhatsApp IDs and aliases.
+- Run `.biz setgroup` in the dedicated business group.
+- Set `GOOGLE_SHEET_SYNC_SECRET` in Bunty and the same value as Apps Script `SECRET_TOKEN`.
+- Keep the Google Form running alongside WhatsApp logging for one week and reconcile the entries before switching over.
+
+## 15. Roadmap
+
+Phases 0–3 and the backup/restore work are complete. Phases 4 and later are POSTPONED until after the pilot; resume only after reviewing a week of parallel Google Form and WhatsApp records. See `TODO.md` for the detailed backlog.
+
+## 16. Open questions
 
 - Confirm the bot runs on a dedicated number (not the owner's personal one).
 - Should the Google Form stay in use during the transition, or is the bot replacing it from day one (affects the importexport step)
