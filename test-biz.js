@@ -1,9 +1,11 @@
 const assert = require('assert');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const Database = require('better-sqlite3');
 const biz = require('./lib/biz');
 const bizCmd = require('./commands/admin/biz');
+const { restoreDatabase } = require('./scripts/restore-biz');
 
 console.log('[TEST] Starting Business Module Tests (Phases 1, 2 & 3)...');
 
@@ -14,6 +16,22 @@ testDb.pragma('foreign_keys = ON');
 
 const schema = fs.readFileSync(path.join(__dirname, 'lib/biz/schema.sql'), 'utf-8');
 testDb.exec(schema);
+biz.db.migrate(testDb);
+
+// A legacy populated database with user_version 0 is stamped and upgraded safely.
+const legacyDb = new Database(':memory:');
+legacyDb.pragma('foreign_keys = ON');
+legacyDb.exec(schema);
+const legacyPerson = legacyDb.prepare("INSERT INTO people (name, role) VALUES ('Legacy', 'member')").run();
+legacyDb.prepare(`
+    INSERT INTO inputs (msg_id, ts, received_at, person_id, chat, kind, raw_text, outcome)
+    VALUES ('LEGACY-001', 10, 11, ?, 'chat', 'text', 'legacy input', 'recorded')
+`).run(legacyPerson.lastInsertRowid);
+assert.strictEqual(legacyDb.pragma('user_version', { simple: true }), 0);
+assert.strictEqual(biz.db.migrate(legacyDb), 2);
+assert.strictEqual(legacyDb.prepare("SELECT raw_text FROM inputs WHERE msg_id = 'LEGACY-001'").get().raw_text, 'legacy input');
+assert(legacyDb.prepare('PRAGMA table_info(inputs)').all().some(column => column.name === 'label'));
+legacyDb.close();
 
 // --- TEST 1: Schema & Tables Verification ---
 const tables = testDb.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(t => t.name);
@@ -165,6 +183,21 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert.deepStrictEqual(staleRes.replies, [], 'Stale messages must not receive a reply');
     const staleInput = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-STALE-001'").get();
     assert.strictEqual(staleInput.outcome, 'stale', 'Stale input should be retained in the audit log');
+
+    biz.db.setSetting('biz_max_msg_age_hours', 'invalid', testDb);
+    await biz.handle({
+        msgId: 'MSG-AGE-INVALID-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700000000, type: 'text', text: 'hello'
+    }, { db: testDb, nowSec: 1700000000 + (25 * 3600) });
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-AGE-INVALID-001'").get().outcome, 'stale');
+
+    biz.db.setSetting('biz_max_msg_age_hours', '0', testDb);
+    const noAgeLimit = await biz.handle({
+        msgId: 'MSG-AGE-DISABLED-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700000000, type: 'text', text: 'biz ping'
+    }, { db: testDb, nowSec: 1700000000 + (25 * 3600) });
+    assert(noAgeLimit.replies[0].text.includes('Identity: Mummy'), 'Zero disables the age limit');
+    biz.db.setSetting('biz_max_msg_age_hours', '24', testDb);
     console.log('✓ Test 4: Chat and sender permission boundaries validated');
 
     // --- TEST 5: NLP Normalizer & Lexicon ---
@@ -279,6 +312,43 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert(rejectedPayment.replies[0].text.includes('koi pending sale nahi mili'));
     assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-PAY-REJECT-001'").get().outcome, 'rejected');
     console.log('✓ Test 7: Settle pending credit sale passes');
+
+    // Simulate a failure after the sale INSERT but during payment INSERT.
+    testDb.exec(`
+        CREATE TRIGGER fail_one_test_payment BEFORE INSERT ON payments
+        WHEN NEW.input_id = (SELECT id FROM inputs WHERE msg_id = 'MSG-CRASH-001')
+          AND (SELECT value FROM settings WHERE key = 'test_fail_payment') = '1'
+        BEGIN
+            SELECT RAISE(ABORT, 'simulated payment insert failure');
+        END;
+    `);
+    biz.db.setSetting('test_fail_payment', '1', testDb);
+    const crashMessage = {
+        msgId: 'MSG-CRASH-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700000340, type: 'text', text: 'CrashCustomer ko Idhu red suit 1300 mein beche, cash Mummy ke paas'
+    };
+    const failedSale = await biz.handle(crashMessage, { db: testDb, nowSec: 1700000340 });
+    assert(failedSale.replies[0].text.includes('Save nahi hua'));
+    assert.strictEqual(testDb.prepare("SELECT count(*) AS c FROM sales WHERE sold_to = 'Crashcustomer'").get().c, 0);
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-CRASH-001'").get().outcome, 'error');
+
+    biz.db.setSetting('test_fail_payment', '0', testDb);
+    const retriedSale = await biz.handle(crashMessage, { db: testDb, nowSec: 1700000340 });
+    assert(retriedSale.replies[0].text.includes('Crashcustomer'));
+    const recoveredSale = testDb.prepare("SELECT * FROM sales WHERE sold_to = 'Crashcustomer'").get();
+    assert(recoveredSale);
+    assert.strictEqual(testDb.prepare('SELECT count(*) AS c FROM sales WHERE sold_to = ?').get('Crashcustomer').c, 1);
+    assert.strictEqual(testDb.prepare('SELECT count(*) AS c FROM payments WHERE sale_id = ?').get(recoveredSale.id).c, 1);
+    testDb.exec('DROP TRIGGER fail_one_test_payment');
+
+    const duplicateSale = {
+        msgId: 'MSG-REDILIVERY-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700000350, type: 'text', text: 'RepeatCustomer ko Idhu suit 750 mein beche, pending'
+    };
+    await biz.handle(duplicateSale, { db: testDb, nowSec: 1700000350 });
+    await biz.handle(duplicateSale, { db: testDb, nowSec: 1700000350 });
+    assert.strictEqual(testDb.prepare("SELECT count(*) AS c FROM sales WHERE sold_to = 'Repeatcustomer'").get().c, 1);
+    console.log('✓ Test 7B: Sale transaction rollback and message redelivery are idempotent');
 
     // --- TEST 8: Phase 2 - Missing Payment Status & Follow-up Question ---
     // User sends sale without specifying payment status
@@ -701,6 +771,25 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert.strictEqual(backupResult.success, false, ':memory: DB backup should fail gracefully');
     assert(backupResult.error, 'Should have an error message');
     console.log('✓ Test 14: Person-wise collection reports & backup utility pass');
+
+    const restoreDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bunty-biz-restore-'));
+    const restorePath = path.join(restoreDir, 'biz.db');
+    const restoreDb = biz.db.getDb(restorePath);
+    biz.sales.recordSale({ ts: 1700001700, sold_to: 'BeforeBackup', sold_for_paise: 10000, money_note: 'Pending' }, restoreDb);
+    const backup = biz.db.createBackup({ dbPath: restorePath, backupDir: path.join(restoreDir, 'backups') });
+    assert.strictEqual(backup.success, true, backup.error);
+    biz.sales.recordSale({ ts: 1700001710, sold_to: 'AfterBackup', sold_for_paise: 20000, money_note: 'Pending' }, restoreDb);
+    assert.strictEqual(restoreDatabase({ backupFile: backup.file, dbPath: restorePath }).success, false, 'Restore must require force');
+    restoreDb.close();
+    const restoreResult = restoreDatabase({ backupFile: backup.file, dbPath: restorePath, force: true });
+    assert.strictEqual(restoreResult.success, true, restoreResult.error);
+    assert(fs.existsSync(`${restorePath}.before-restore`), 'Previous database should be retained');
+    const restoredDb = new Database(restorePath, { readonly: true });
+    assert.strictEqual(restoredDb.prepare('SELECT count(*) AS c FROM sales').get().c, 1);
+    assert.strictEqual(restoredDb.prepare("SELECT count(*) AS c FROM sales WHERE sold_to = 'AfterBackup'").get().c, 0);
+    restoredDb.close();
+    fs.rmSync(restoreDir, { recursive: true, force: true });
+    console.log('✓ Test 16: Backup integrity check and forced restore remove later changes');
 
     console.log('\nALL BUSINESS PHASE 1, 2 & 3 TESTS PASSED! (¬_¬) ✅');
 })();

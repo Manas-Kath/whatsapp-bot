@@ -122,7 +122,7 @@ async function startBunty() {
     const sock = makeWASocket({
         version,
         auth: state,
-        logger: pino({ level: 'silent' }),
+        logger: pino({ level: process.env.WA_LOG || 'silent' }),
         browser: Browsers.macOS('Desktop'),
         syncFullHistory: false, 
         markOnlineOnConnect: true,
@@ -139,8 +139,9 @@ async function startBunty() {
         if (qr) qrcode.generate(qr, { small: true });
         
         if (connection === 'close') {
-            const reason = (lastDisconnect.error)?.output?.statusCode;
-            console.log(`(・_°；) Connection Closed. Reason: ${reason}`);
+            const disconnectError = lastDisconnect?.error;
+            const reason = disconnectError?.output?.statusCode;
+            console.log(`(・_°；) Connection Closed. Status: ${reason}; Error: ${disconnectError?.message || 'unknown'}`);
 
             const shouldReconnect = (reason !== DisconnectReason.loggedOut);
             
