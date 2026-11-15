@@ -32,7 +32,7 @@ Clothes-reselling sale log and money tracker for the family, driven through What
 - [x] Import the existing Google Form responses (CSV/XLSX) as seed data; export back to the exact same column layout.
 
 ### Phase 3: Reports (read-only queries)
-- [ ] `aaj ka hisaab` (today's sales and collections), `pending` / `udhar` (per customer), person-wise collections, cash vs UPI totals.
+- [x] `aaj ka hisaab` (today's sales and collections), `pending` / `udhar` (per customer), person-wise collections, cash vs UPI totals.
 
 ### Phase 4: Purchases, expenses, transfers (build when needed)
 - [ ] Carton purchases, shipping/packaging and other expenses, transfers between family members and accounts.
@@ -56,7 +56,8 @@ Clothes-reselling sale log and money tracker for the family, driven through What
 - [ ] Tesseract (Hindi+English) as a one-at-a-time subprocess; crop amount/UTR; claims keyed by UTR; reconcile with bank statement CSV; delete the image after extraction (keep SHA-256, UTR, amount, time).
 
 ### Phase 9: Later
-- [ ] Nightly SQLite backup and tested restore (do this early, before Phase 3 if possible).
+- [x] Nightly rotating SQLite backups and manual backup command.
+- [ ] Document and test a database restore procedure.
 - [ ] Google Sheets/Datasette read-only mirror.
 - [ ] Move `lib/biz` into its own container only if a real need appears (memory, crashes, second interface).
 

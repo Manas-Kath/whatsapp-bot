@@ -398,5 +398,123 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         global.fetch = originalFetch;
     }
 
-    console.log('\nALL BUSINESS PHASE 1 & 2 TESTS PASSED! (¬_¬) ✅');
+    // --- TEST 13: Phase 3 - Natural Language Report Intents ---
+    // 13A: "aaj ka hisaab" → query_summary
+    const sumRes = await biz.handle({
+        msgId: 'MSG-SUM-001',
+        chat: BIZ_GROUP,
+        senderId: '11111111@lid',
+        ts: 1700001000,
+        type: 'text',
+        text: 'aaj ka hisaab'
+    }, { db: testDb, nowSec: 1700001000 });
+    assert.strictEqual(sumRes.handled, true);
+    assert(sumRes.replies[0].text.includes('AAJ KA HISAAB'), 'Should return daily summary');
+    assert(sumRes.replies[0].text.includes("Today's Sales:"), 'Should include sales count');
+
+    // 13B: "summary" → query_summary
+    const sumRes2 = await biz.handle({
+        msgId: 'MSG-SUM-002',
+        chat: BIZ_GROUP,
+        senderId: '11111111@lid',
+        ts: 1700001010,
+        type: 'text',
+        text: 'summary'
+    }, { db: testDb, nowSec: 1700001010 });
+    assert(sumRes2.replies[0].text.includes('AAJ KA HISAAB'), 'summary → daily hisaab');
+
+    // 13C: Customer-specific pending: "Meera ka udhar" → query_pending_customer
+    // We need an active pending sale first (Meera was settled; create a new one)
+    const saleRes3 = await biz.handle({
+        msgId: 'MSG-SALE-NLP-01',
+        chat: BIZ_GROUP,
+        senderId: '11111111@lid',
+        ts: 1700001100,
+        type: 'text',
+        text: 'Meera ko Belliza pink suit 1800 pending'
+    }, { db: testDb, nowSec: 1700001100 });
+    assert(saleRes3.handled, 'Should record new Meera pending sale');
+
+    const pendingCustomerRes = await biz.handle({
+        msgId: 'MSG-PEND-CUST-01',
+        chat: BIZ_GROUP,
+        senderId: '11111111@lid',
+        ts: 1700001200,
+        type: 'text',
+        text: 'Meera ka udhar'
+    }, { db: testDb, nowSec: 1700001200 });
+    assert.strictEqual(pendingCustomerRes.handled, true);
+    assert(pendingCustomerRes.replies[0].text.includes('BIZ PENDING'), 'Customer pending query reply');
+    assert(pendingCustomerRes.replies[0].text.includes('Meera'), 'Reply should mention Meera');
+
+    // 13D: Global pending: "pending" → query_pending (all pending)
+    const pendingGlobalRes = await biz.handle({
+        msgId: 'MSG-PEND-GLOB-01',
+        chat: BIZ_GROUP,
+        senderId: '11111111@lid',
+        ts: 1700001300,
+        type: 'text',
+        text: 'pending'
+    }, { db: testDb, nowSec: 1700001300 });
+    assert.strictEqual(pendingGlobalRes.handled, true);
+    assert(pendingGlobalRes.replies[0].text.includes('BIZ PENDING'));
+    console.log('✓ Test 13: Natural language report intents (summary, customer pending, global pending) pass');
+
+    // --- TEST 14: Phase 3 - Person-wise Collection Query & .biz report ---
+    // 14A: NL collection query ("Papa ne kitna collect kiya")
+    // First need a payment collected by Papa; settle the Rajesh import row
+    const rajeshSale = testDb.prepare("SELECT * FROM sales WHERE sold_to = 'Rajesh'").get();
+    if (rajeshSale) {
+        biz.sales.settleCustomerPending({
+            customer: 'Rajesh',
+            amount_paise: rajeshSale.sold_for_paise,
+            mode: 'cash',
+            received_by: dad.id,
+            ts: 1700001400,
+            input_id: null
+        }, testDb);
+    }
+
+    const colRes = await biz.handle({
+        msgId: 'MSG-COL-001',
+        chat: BIZ_GROUP,
+        senderId: '11111111@lid',
+        ts: 1700001500,
+        type: 'text',
+        text: 'Papa ne kitna collect kiya'
+    }, { db: testDb, nowSec: 1700001500 });
+    assert.strictEqual(colRes.handled, true);
+    assert(colRes.replies[0].text.includes('BIZ COLLECTION'), 'Collection intent routed correctly');
+
+    // 14B: .biz report command
+    await bizCmd.run({
+        sock: mockSock,
+        msg: {},
+        jid: BIZ_GROUP,
+        sender: '11111111@lid',
+        args: ['report'],
+        isGroup: true,
+        db: testDb
+    });
+    assert(lastSentText.includes('BIZ COLLECTION'), '.biz report returns collection text');
+
+    // 14C: .biz report Papa (person-specific)
+    await bizCmd.run({
+        sock: mockSock,
+        msg: {},
+        jid: BIZ_GROUP,
+        sender: '11111111@lid',
+        args: ['report', 'Papa'],
+        isGroup: true,
+        db: testDb
+    });
+    assert(lastSentText.includes('BIZ COLLECTION'), '.biz report Papa returns collection text');
+
+    // 14D: .biz backup (manual backup — skipped in :memory: test, just verify no crash)
+    const backupResult = biz.db.createBackup({ dbPath: ':memory:' });
+    assert.strictEqual(backupResult.success, false, ':memory: DB backup should fail gracefully');
+    assert(backupResult.error, 'Should have an error message');
+    console.log('✓ Test 14: Person-wise collection reports & backup utility pass');
+
+    console.log('\nALL BUSINESS PHASE 1, 2 & 3 TESTS PASSED! (¬_¬) ✅');
 })();

@@ -17,6 +17,7 @@ const safety = require('./lib/safety');
 const { buildMentionDirectory, replaceIncomingMentions } = require('./lib/mentions');
 const { containsLink } = require('./lib/utils');
 const biz = require('./lib/biz');
+let bizBackupSchedulerStarted = false;
 
 // RAM CACHE for anti-delete and performance. Keep the cap strict: high-volume
 // chats can receive more than 1,000 messages before the one-hour TTL expires.
@@ -196,6 +197,40 @@ async function startBunty() {
             console.error('[SHEETS WATCHDOG] Periodic pull error:', e.message);
         }
     }, 10 * 60 * 1000);
+
+    // Nightly SQLite backup at 02:00 IST (keeping last 7 daily snapshots)
+    // Uses VACUUM INTO which is WAL-safe and consistent under concurrent reads.
+    if (!bizBackupSchedulerStarted) {
+        bizBackupSchedulerStarted = true;
+        const BIZ_BACKUP_HOUR_IST = 2; // 02:00 IST
+        const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+        function msUntilNextBackup() {
+            const nowUtc = Date.now();
+            const nowIst = new Date(nowUtc + IST_OFFSET_MS);
+            const targetIstAsUtc = Date.UTC(
+                nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate(),
+                BIZ_BACKUP_HOUR_IST, 0, 0, 0
+            );
+            let nextRunUtc = targetIstAsUtc - IST_OFFSET_MS;
+            if (nextRunUtc <= nowUtc) nextRunUtc += 24 * 60 * 60 * 1000;
+            return nextRunUtc - nowUtc;
+        }
+        function scheduleNightlyBackup() {
+            const delay = msUntilNextBackup();
+            setTimeout(() => {
+                const result = biz.db.createBackup({ keepCount: 7 });
+                if (result.success) {
+                    console.log(`[BIZ BACKUP] Nightly backup created: ${result.file}`);
+                } else {
+                    console.error(`[BIZ BACKUP] Backup failed: ${result.error}`);
+                }
+                scheduleNightlyBackup(); // schedule next night
+            }, delay);
+            const h = Math.round(delay / 3600000 * 10) / 10;
+            console.log(`[BIZ BACKUP] Next nightly backup in ${h}h`);
+        }
+        scheduleNightlyBackup();
+    }
 
     sock.ev.on('messages.upsert', async m => {
         if (!m.messages || !m.messages.length) return;

@@ -1,6 +1,29 @@
 const biz = require('../../lib/biz');
 const { jidNormalizedUser } = require('@whiskeysockets/baileys');
 
+// Helper: build person-wise collection text (reused by both command and NL route)
+function buildCollectionText(cols, targetPersonName = null) {
+    if (!cols.length) {
+        return targetPersonName
+            ? `${targetPersonName} ne aaj koi payment collect nahi kiya.`
+            : `Aaj koi payment collect nahi hua.`;
+    }
+    if (targetPersonName) {
+        const col = cols.find(c => c.person_name.toLowerCase() === targetPersonName.toLowerCase());
+        if (!col) return `${targetPersonName} ne aaj koi payment collect nahi kiya.`;
+        return `*${col.person_name} ka aaj ka collection:*\n` +
+            `• Cash: ₹${Math.round(col.cash_paise / 100)}\n` +
+            `• UPI: ₹${Math.round(col.upi_paise / 100)}\n` +
+            `• *Total: ₹${Math.round(col.total_paise / 100)}*`;
+    }
+    let text = `*Aaj ka person-wise collection:*\n`;
+    for (const col of cols) {
+        text += `• *${col.person_name}*: ₹${Math.round(col.total_paise / 100)} ` +
+            `(Cash ₹${Math.round(col.cash_paise / 100)} + UPI ₹${Math.round(col.upi_paise / 100)})\n`;
+    }
+    return text.trim();
+}
+
 module.exports = {
     name: 'biz',
     category: 'admin',
@@ -16,6 +39,9 @@ module.exports = {
                 `• \`.biz whoami\` - Show sender ID (or reply to a message)\n` +
                 `• \`.biz summary\` - Today's sales, collections & pending\n` +
                 `• \`.biz pending\` - List all pending sales\n` +
+                `• \`.biz pending <name>\` - Pending for a specific customer\n` +
+                `• \`.biz report [Papa|Mummy|...]\` - Person-wise collection report\n` +
+                `• \`.biz backup\` - Trigger manual SQLite backup\n` +
                 `• \`.biz sync\` - Sync entries between Google Sheet and database\n` +
                 `• \`.biz setsheet <url>\` - Link Google Sheet Web App URL\n` +
                 `• \`.biz export\` - Export sales in Google Form CSV layout\n` +
@@ -56,7 +82,7 @@ module.exports = {
             return sock.sendMessage(jid, { text }, { quoted: msg });
         }
 
-        if (sub === 'summary' || sub === 'report') {
+        if (sub === 'summary') {
             const sum = biz.sales.getTodaySummary(db);
             const text = `(¬_¬) [ AAJ KA HISAAB ] 📊\n\n` +
                 `• Today's Sales: ${sum.salesCount} (₹${Math.round(sum.salesTotalPaise / 100)})\n` +
@@ -68,9 +94,12 @@ module.exports = {
         }
 
         if (sub === 'pending') {
-            const pendingList = biz.sales.findPendingSales(null, db);
+            // Optional: .biz pending <CustomerName>
+            const customerFilter = args.length > 1 ? args.slice(1).join(' ') : null;
+            const pendingList = biz.sales.findPendingSales(customerFilter, db);
             if (!pendingList.length) {
-                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ PENDING ] 📋\n\nKoi pending amount nahi hai. Sab clear hai!` }, { quoted: msg });
+                const who = customerFilter ? `"${customerFilter}"` : 'Koi customer';
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ PENDING ] 📋\n\n${who} ka koi pending amount nahi hai. Sab clear hai!` }, { quoted: msg });
             }
             let totalPaise = 0;
             let text = `(¬_¬) [ BIZ PENDING ] 📋\n\n`;
@@ -99,6 +128,37 @@ module.exports = {
             biz.db.setSetting('biz_sheets_url', url.trim(), db);
             return sock.sendMessage(jid, {
                 text: `(¬_¬) [ BIZ ] ✅\n\nGoogle Sheets Web App linked successfully!\nSales will now be mirrored in real-time.\nUse \`.biz sync\` to pull any new Google Form entries.`
+            }, { quoted: msg });
+        }
+
+        if (sub === 'report') {
+            // Person-wise collection report. Optional arg: person name
+            let personName = args.length > 1 ? args.slice(1).join(' ') : null;
+            if (personName) {
+                const target = biz.people.getAllPeople(db).find(person => {
+                    let aliases = [];
+                    try { aliases = JSON.parse(person.aliases || '[]'); } catch (e) {}
+                    return [person.name, ...aliases].some(label =>
+                        String(label).trim().toLowerCase() === personName.toLowerCase()
+                    );
+                });
+                if (target) personName = target.name;
+            }
+            const cols = biz.sales.getPersonCollections(db, { allTime: false });
+            const body = buildCollectionText(cols, personName);
+            return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ COLLECTION ] 📋\n\n${body}` }, { quoted: msg });
+        }
+
+        if (sub === 'backup') {
+            const result = biz.db.createBackup({ keepCount: 7 });
+            if (!result.success) {
+                return sock.sendMessage(jid, {
+                    text: `(¬_¬) [ BIZ BACKUP ] ❌\n\nBackup failed: ${result.error}`
+                }, { quoted: msg });
+            }
+            const fname = require('path').basename(result.file);
+            return sock.sendMessage(jid, {
+                text: `(¬_¬) [ BIZ BACKUP ] ✅\n\nManual backup saved:\n\`${fname}\`\n\nLast 7 snapshots are retained.`
             }, { quoted: msg });
         }
 
