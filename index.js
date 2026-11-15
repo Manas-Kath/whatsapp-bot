@@ -423,52 +423,74 @@ async function startBunty() {
             }
 
             const ctx = { sock, msg, jid, sender, isGroup, body: (body || ''), isSuperAdmin, quoted, isAdmin };
+            const botId = jidNormalizedUser(sock.user.id);
+            const botLid = sock.user.lid ? jidNormalizedUser(sock.user.lid) : null;
+            const mentions = contextInfo?.mentionedJid || [];
+            const isMentioned = mentions.some(id => {
+                const norm = jidNormalizedUser(id);
+                return norm === botId || norm === botLid;
+            });
+            const replyParticipant = contextInfo?.participant
+                ? jidNormalizedUser(contextInfo.participant)
+                : (contextInfo?.quotedMessage && !isGroup ? botId : null);
+            const isReplyToBot = replyParticipant === botId || replyParticipant === botLid;
+            const quotedType = quoted?.message ? Object.keys(quoted.message)[0] : null;
+            const quotedText = quoted?.message?.conversation || quoted?.message?.extendedTextMessage?.text ||
+                (quotedType ? quoted?.message?.[quotedType]?.caption : '') || '';
 
             // 1. Bunty commands and #memo (only on live notify)
             if (isCmd || isMemo) {
                 if (m.type === 'notify') {
-                    await handleCommand(ctx);
+                    const rawCommand = (body || '').slice(config.prefix.trim().length).trim();
+                    const ownerManagement = rawCommand.match(/^biz\s+(adduser|edituser|addid|removeuser|restoreuser|listusers)\b(.*)$/i);
+                    const requester = ownerManagement && !isSuperAdmin
+                        ? biz.people.findPersonByIdentifier(sender)
+                        : null;
+                    const mayManageUsers = isSuperAdmin || requester?.role === 'owner';
+                    if (ownerManagement && mayManageUsers && !db.isBanned(sender)) {
+                        const args = [ownerManagement[1].toLowerCase(), ...ownerManagement[2].trim().split(/\s+/).filter(Boolean)];
+                        await require('./commands/admin/biz').run({ ...ctx, args });
+                    } else {
+                        await handleCommand(ctx);
+                    }
                 }
                 continue;
             }
 
             // 2. Business Module Router (before AI Safe Mode, processes notify & append)
-            try {
-                const bizInput = {
-                    msgId: key.id,
-                    chat: jid,
-                    senderId: sender,
-                    ts: msg.messageTimestamp,
-                    type: mType === 'imageMessage' ? 'image' : mType === 'audioMessage' ? 'audio' : 'text',
-                    text: body,
-                    quotedText: ctx.quoted?.message?.conversation || ctx.quoted?.message?.extendedTextMessage?.text || null
-                };
-                const bizResult = await biz.handle(bizInput);
-                if (bizResult && bizResult.handled) {
-                    for (const rep of (bizResult.replies || [])) {
-                        if (rep && rep.text) {
-                            await sock.sendMessage(jid, { text: rep.text }, { quoted: msg });
+            if (biz.shouldRouteMessage({
+                    fromMe: Boolean(key.fromMe),
+                    isMentioned,
+                    isReplyToBot,
+                    quotedText
+                })) {
+                try {
+                    const bizInput = {
+                        msgId: key.id,
+                        chat: jid,
+                        senderId: sender,
+                        ts: msg.messageTimestamp,
+                        type: mType === 'imageMessage' ? 'image' : mType === 'audioMessage' ? 'audio' : 'text',
+                        text: body,
+                        quotedText: ctx.quoted?.message?.conversation || ctx.quoted?.message?.extendedTextMessage?.text || null
+                    };
+                    const bizResult = await biz.handle(bizInput);
+                    if (bizResult && bizResult.handled) {
+                        for (const rep of (bizResult.replies || [])) {
+                            if (rep && rep.text) {
+                                await sock.sendMessage(jid, { text: rep.text }, { quoted: msg });
+                            }
                         }
+                        continue;
                     }
-                    continue;
+                } catch (bizErr) {
+                    console.error('[BIZ] Uncaught router error:', bizErr);
                 }
-            } catch (bizErr) {
-                console.error('[BIZ] Uncaught router error:', bizErr);
             }
 
             // 3. AI Logic (Only for live notify events)
             if (m.type === 'notify' && db.data.settings.ai_enabled && !db.isBanned(sender)) {
                 if (!safety.shouldEnableAI()) continue;
-
-                const botId = jidNormalizedUser(sock.user.id);
-                const botLid = sock.user.lid ? jidNormalizedUser(sock.user.lid) : null;
-                const mentions = contextInfo?.mentionedJid || [];
-                const isMentioned = mentions.some(id => {
-                    const norm = jidNormalizedUser(id);
-                    return norm === botId || norm === botLid;
-                });
-                const replyParticipant = contextInfo?.participant ? jidNormalizedUser(contextInfo.participant) : null;
-                const isReplyToBot = replyParticipant && (replyParticipant === botId || replyParticipant === botLid);
 
                 if (isMentioned || isReplyToBot) {
                     const aiCmd = require('./commands/ai/ask');

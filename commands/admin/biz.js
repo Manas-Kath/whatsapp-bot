@@ -1,5 +1,6 @@
 const biz = require('../../lib/biz');
 const { jidNormalizedUser } = require('@whiskeysockets/baileys');
+const OWNER_MANAGEMENT_COMMANDS = new Set(['adduser', 'edituser', 'addid', 'removeuser', 'restoreuser', 'listusers']);
 
 // Helper: build person-wise collection text (reused by both command and NL route)
 function buildCollectionText(cols, targetPersonName = null) {
@@ -28,7 +29,7 @@ module.exports = {
     name: 'biz',
     category: 'admin',
     desc: 'Business module management (registration, group setup, status, reports)',
-    superAdminOnly: true,
+    superAdminOnly: false,
 
     run: async (ctx) => {
         const { sock, msg, jid, args, isGroup } = ctx;
@@ -54,6 +55,15 @@ module.exports = {
         }
 
         const db = ctx.db || biz.db.getDb();
+        const isSuperAdmin = Boolean(ctx.isSuperAdmin);
+        const requester = ctx.sender ? biz.people.findPersonByIdentifier(ctx.sender, db) : null;
+        const isOwner = requester?.role === 'owner' && requester.active === 1;
+        if (!isSuperAdmin && (!OWNER_MANAGEMENT_COMMANDS.has(sub) || !isOwner)) {
+            if (OWNER_MANAGEMENT_COMMANDS.has(sub)) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ]\n\nOnly a registered owner or super admin can manage users.` }, { quoted: msg });
+            }
+            return;
+        }
 
         if (sub === 'whoami') {
             let targetJid = null;
@@ -236,6 +246,71 @@ module.exports = {
             }
         }
 
+        if (sub === 'edituser') {
+            const name = args[1];
+            const person = biz.people.findPersonByName(name, db);
+            const optionArgs = args.slice(2);
+            const fields = {};
+            for (const option of optionArgs) {
+                const splitAt = option.indexOf('=');
+                if (splitAt < 1) {
+                    return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ]\n\nUse: .biz edituser <name> [name=New] [role=owner|member] [aliases=a,b]` }, { quoted: msg });
+                }
+                const key = option.slice(0, splitAt).toLowerCase();
+                const value = option.slice(splitAt + 1);
+                if (key === 'name' && value.trim()) fields.name = value.trim();
+                else if (key === 'role' && ['owner', 'member'].includes(value.toLowerCase())) fields.role = value.toLowerCase();
+                else if (key === 'aliases') fields.aliases = value ? value.split(',').map(alias => alias.trim().toLowerCase()).filter(Boolean) : [];
+                else return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ]\n\nInvalid edit option: ${option}` }, { quoted: msg });
+            }
+            if (!person || !Object.keys(fields).length) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ]\n\nUser not found or no edit fields supplied.` }, { quoted: msg });
+            }
+            if (fields.name) {
+                const duplicate = biz.people.findPersonByName(fields.name, db);
+                if (duplicate && duplicate.id !== person.id) {
+                    return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ]\n\nAnother user already has that name.` }, { quoted: msg });
+                }
+            }
+            try {
+                const updated = biz.people.updatePerson(person.id, fields, db);
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ] ✅\n\nUpdated #${updated.id}: ${updated.name} (${updated.role}, ${updated.active ? 'active' : 'inactive'}).\nAliases: ${updated.aliases}` }, { quoted: msg });
+            } catch (err) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ] ❌\n\n${err.message}` }, { quoted: msg });
+            }
+        }
+
+        if (sub === 'addid') {
+            const person = biz.people.findPersonByName(args[1], db);
+            const identifier = args[2];
+            if (!person || !identifier || !identifier.includes('@')) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ]\n\nUse: .biz addid <name> <wa_lid_or_phone_jid>` }, { quoted: msg });
+            }
+            const isLid = identifier.endsWith('@lid');
+            const field = isLid ? 'wa_lid' : 'wa_pn';
+            if (person[field] && person[field] !== identifier) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ] ❌\n\n${person.name} already has a ${isLid ? 'LID' : 'phone'} ID.` }, { quoted: msg });
+            }
+            try {
+                const updated = biz.people.updatePerson(person.id, { [field]: identifier }, db);
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ] ✅\n\nAdded ID for ${updated.name}: ${identifier}` }, { quoted: msg });
+            } catch (err) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ] ❌\n\nCould not add ID: ${err.message}` }, { quoted: msg });
+            }
+        }
+
+        if (sub === 'removeuser' || sub === 'restoreuser') {
+            const person = biz.people.findPersonByName(args[1], db);
+            if (!person) return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ]\n\nUser not found.` }, { quoted: msg });
+            const active = sub === 'restoreuser' ? 1 : 0;
+            try {
+                const updated = biz.people.updatePerson(person.id, { active }, db);
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ] ✅\n\n${updated.name} is now ${updated.active ? 'active' : 'inactive'} (${updated.role}).` }, { quoted: msg });
+            } catch (err) {
+                return sock.sendMessage(jid, { text: `(¬_¬) [ BIZ ] ❌\n\n${err.message}` }, { quoted: msg });
+            }
+        }
+
         if (sub === 'listusers') {
             const users = biz.people.getAllPeople(db);
             if (!users.length) {
@@ -245,7 +320,7 @@ module.exports = {
             let text = `(¬_¬) [ BIZ USERS ]\n\n`;
             for (const u of users) {
                 const idStr = u.wa_lid || u.wa_pn || 'No WA ID';
-                text += `• *#${u.id} ${u.name}* (${u.role})\n  ID: \`${idStr}\`\n  Aliases: ${u.aliases}\n\n`;
+                text += `• *#${u.id} ${u.name}* (${u.role}, ${u.active ? 'active' : 'inactive'})\n  ID: \`${idStr}\`\n  Aliases: ${u.aliases}\n\n`;
             }
             return sock.sendMessage(jid, { text: text.trim() }, { quoted: msg });
         }

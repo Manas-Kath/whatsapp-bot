@@ -43,6 +43,7 @@ try {
     paymentsDeleteBlocked = e.message.includes('Deleting payments records is not permitted');
 }
 assert(paymentsDeleteBlocked, 'Trigger should block deletion of payments');
+testDb.prepare("UPDATE people SET role = 'member' WHERE name = 'Tester'").run();
 console.log('✓ Test 2: Immutability triggers block DELETE on sales and payments');
 
 // --- TEST 3: People Management & Alias Lookup ---
@@ -112,7 +113,45 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert(res3.replies[0].text.includes('Identity: Mummy'));
     const input3 = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-003'").get();
     assert.strictEqual(input3.person_id, mom.id);
-    assert.strictEqual(input3.outcome, 'recorded');
+    assert.strictEqual(input3.outcome, 'query');
+
+    const fromMeResult = await biz.handle({
+        msgId: 'MSG-FROM-ME-001',
+        chat: '919811111111@s.whatsapp.net',
+        senderId: '919811111111@s.whatsapp.net',
+        fromMe: true,
+        ts: 1700000003,
+        type: 'text',
+        text: 'hello'
+    }, { db: testDb, nowSec: 1700000003 });
+    assert.strictEqual(fromMeResult.handled, false);
+    assert.strictEqual(testDb.prepare("SELECT count(*) AS c FROM inputs WHERE msg_id = 'MSG-FROM-ME-001'").get().c, 0);
+    assert.strictEqual(biz.shouldRouteMessage({ fromMe: true }), false);
+    assert.strictEqual(biz.shouldRouteMessage({ isMentioned: true }), false);
+    assert.strictEqual(biz.shouldRouteMessage({ isReplyToBot: true, quotedText: 'normal AI reply' }), false);
+    assert.strictEqual(biz.shouldRouteMessage({ isReplyToBot: true, quotedText: '(¬_¬) [ BIZ ] ✅ receipt' }), true);
+    assert.strictEqual(biz.shouldRouteMessage({}), true);
+
+    const greeting = await biz.handle({
+        msgId: 'MSG-GREETING-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700000004, type: 'text', text: 'Hi bunty, good morning dosto'
+    }, { db: testDb, nowSec: 1700000004 });
+    assert.deepStrictEqual(greeting.replies, []);
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-GREETING-001'").get().outcome, 'chitchat');
+
+    const unknown = await biz.handle({
+        msgId: 'MSG-UNPARSED-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700000005, type: 'text', text: 'random words here'
+    }, { db: testDb, nowSec: 1700000005 });
+    assert(unknown.replies[0].text.includes('Samajh nahi aaya'));
+    assert(!unknown.replies[0].text.includes('logged'));
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-UNPARSED-001'").get().outcome, 'unparsed');
+
+    await biz.handle({
+        msgId: 'MSG-MEDIA-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700000006, type: 'image', text: ''
+    }, { db: testDb, nowSec: 1700000006 });
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-MEDIA-001'").get().outcome, 'media_unprocessed');
 
     const staleRes = await biz.handle({
         msgId: 'MSG-STALE-001',
@@ -139,6 +178,8 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
 
     const norm3 = biz.nlp.normalize.normalizeText('2 hazar upi');
     assert(norm3.includes('2000'), '2 hazar -> 2000');
+    const digitSale = biz.nlp.rules.parseMessage('Meera ko 2450 mein beche', { db: testDb, senderPerson: mom });
+    assert.strictEqual(digitSale.intent, 'record_sale', 'Digit-bearing sale language must remain a sale intent');
     console.log('✓ Test 5: Normalizer & Hindi amount lexicons pass');
 
     // --- TEST 6: Phase 2 - Record Real Sales ---
@@ -229,6 +270,14 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert.strictEqual(papaPayment.amount_paise, 200000);
     assert.strictEqual(papaPayment.mode, 'upi');
     assert.strictEqual(JSON.parse(testDb.prepare("SELECT parsed_json FROM inputs WHERE msg_id = 'MSG-PAY-UPI-001'").get().parsed_json).intent, 'record_payment');
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-PAY-UPI-001'").get().outcome, 'recorded');
+
+    const rejectedPayment = await biz.handle({
+        msgId: 'MSG-PAY-REJECT-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700000330, type: 'text', text: 'UnknownCustomer ne 500 cash diye'
+    }, { db: testDb, nowSec: 1700000330 });
+    assert(rejectedPayment.replies[0].text.includes('koi pending sale nahi mili'));
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-PAY-REJECT-001'").get().outcome, 'rejected');
     console.log('✓ Test 7: Settle pending credit sale passes');
 
     // --- TEST 8: Phase 2 - Missing Payment Status & Follow-up Question ---
@@ -244,6 +293,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
 
     assert.strictEqual(askRes.handled, true);
     assert(askRes.replies[0].text.includes('Money kiske paas aur kaise'));
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-ASK-001'").get().outcome, 'asked');
 
     // Answering the pending question with "UPI Papa"
     const ansRes = await biz.handle({
@@ -273,6 +323,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
 
     assert.strictEqual(undoRes.handled, true);
     assert(undoRes.replies[0].text.includes('Voided'));
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-UNDO-001'").get().outcome, 'undone');
     console.log('✓ Test 9: Undo voids recent record cleanly');
 
     // --- TEST 10: Phase 2 - Export & Import Matching Google Form Layout ---
@@ -305,6 +356,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         msg: {},
         jid: BIZ_GROUP,
         sender: '11111111@lid',
+        isSuperAdmin: true,
         args: ['summary'],
         isGroup: true,
         db: testDb
@@ -317,6 +369,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         msg: {},
         jid: BIZ_GROUP,
         sender: '11111111@lid',
+        isSuperAdmin: true,
         args: ['pending'],
         isGroup: true,
         db: testDb
@@ -328,6 +381,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         msg: {},
         jid: BIZ_GROUP,
         sender: '11111111@lid',
+        isSuperAdmin: true,
         args: ['export'],
         isGroup: true,
         db: testDb
@@ -345,6 +399,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         msg: {},
         jid: BIZ_GROUP,
         sender: '11111111@lid',
+        isSuperAdmin: true,
         args: ['setsheet', 'https://script.google.com/macros/s/TEST/exec'],
         isGroup: true,
         db: testDb
@@ -463,6 +518,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
             msg: {},
             jid: BIZ_GROUP,
             sender: '11111111@lid',
+            isSuperAdmin: true,
             args: ['sync'],
             isGroup: true,
             db: testDb
@@ -488,6 +544,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert.strictEqual(sumRes.handled, true);
     assert(sumRes.replies[0].text.includes('AAJ KA HISAAB'), 'Should return daily summary');
     assert(sumRes.replies[0].text.includes("Today's Sales:"), 'Should include sales count');
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-SUM-001'").get().outcome, 'query');
 
     // 13B: "summary" → query_summary
     const sumRes2 = await biz.handle({
@@ -535,6 +592,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     }, { db: testDb, nowSec: 1700001300 });
     assert.strictEqual(pendingGlobalRes.handled, true);
     assert(pendingGlobalRes.replies[0].text.includes('BIZ PENDING'));
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-PEND-GLOB-01'").get().outcome, 'query');
     console.log('✓ Test 13: Natural language report intents (summary, customer pending, global pending) pass');
 
     // --- TEST 14: Phase 3 - Person-wise Collection Query & .biz report ---
@@ -562,6 +620,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     }, { db: testDb, nowSec: 1700001500 });
     assert.strictEqual(colRes.handled, true);
     assert(colRes.replies[0].text.includes('BIZ COLLECTION'), 'Collection intent routed correctly');
+    assert.strictEqual(testDb.prepare("SELECT outcome FROM inputs WHERE msg_id = 'MSG-COL-001'").get().outcome, 'query');
 
     // 14B: .biz report command
     await bizCmd.run({
@@ -569,6 +628,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         msg: {},
         jid: BIZ_GROUP,
         sender: '11111111@lid',
+        isSuperAdmin: true,
         args: ['report'],
         isGroup: true,
         db: testDb
@@ -581,11 +641,60 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         msg: {},
         jid: BIZ_GROUP,
         sender: '11111111@lid',
+        isSuperAdmin: true,
         args: ['report', 'Papa'],
         isGroup: true,
         db: testDb
     });
     assert(lastSentText.includes('BIZ COLLECTION'), '.biz report Papa returns collection text');
+
+    // User management is available to active owners and super admins only.
+    const owner = biz.people.registerPerson({ name: 'OwnerOne', role: 'owner', wa_lid: '33333333@lid' }, testDb);
+    const runAsOwner = (args, sender = owner.wa_lid) => bizCmd.run({
+        sock: mockSock, msg: {}, jid: BIZ_GROUP, sender,
+        isSuperAdmin: false, args, isGroup: true, db: testDb
+    });
+    await bizCmd.run({
+        sock: mockSock, msg: {}, jid: BIZ_GROUP, sender: mom.wa_lid,
+        isSuperAdmin: false, args: ['adduser', 'Blocked', 'member', '44444444@lid'],
+        isGroup: true, db: testDb
+    });
+    assert(lastSentText.includes('Only a registered owner'));
+
+    await runAsOwner(['edituser', 'OwnerOne', 'role=member']);
+    assert(lastSentText.includes('last active owner'));
+    assert.strictEqual(biz.people.findPersonByName('OwnerOne', testDb).role, 'owner');
+
+    await runAsOwner(['adduser', 'OwnerTwo', 'owner', '55555555@lid', 'second']);
+    assert(lastSentText.includes('Registered OwnerTwo'));
+    await runAsOwner(['adduser', 'Guest', 'member', '66666666@s.whatsapp.net']);
+    await runAsOwner(['addid', 'Guest', '77777777@lid']);
+    assert.strictEqual(biz.people.findPersonByName('Guest', testDb).wa_lid, '77777777@lid');
+    await runAsOwner(['edituser', 'Guest', 'name=GuestNew', 'aliases=customer,client']);
+    const editedGuest = biz.people.findPersonByName('GuestNew', testDb);
+    assert.deepStrictEqual(JSON.parse(editedGuest.aliases), ['customer', 'client']);
+    await runAsOwner(['removeuser', 'GuestNew']);
+    assert.strictEqual(biz.people.findPersonByName('GuestNew', testDb).active, 0);
+    await runAsOwner(['restoreuser', 'GuestNew']);
+    assert.strictEqual(biz.people.findPersonByName('GuestNew', testDb).active, 1);
+    await runAsOwner(['edituser', 'OwnerOne', 'role=member']);
+    assert.strictEqual(biz.people.findPersonByName('OwnerOne', testDb).role, 'member');
+    await runAsOwner(['removeuser', 'OwnerTwo'], '55555555@lid');
+    assert(lastSentText.includes('last active owner'));
+    console.log('✓ Test 11A: Owner and super-admin user management commands pass');
+
+    // Exact sale phrase stays a sale intent and completes after the existing payment question.
+    const shortSaleQuestion = await biz.handle({
+        msgId: 'MSG-SHORT-SALE-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700001600, type: 'text', text: 'Meera ko 2450 mein beche'
+    }, { db: testDb, nowSec: 1700001600 });
+    assert(shortSaleQuestion.replies[0].text.includes('Money kiske paas'));
+    const shortSaleSaved = await biz.handle({
+        msgId: 'MSG-SHORT-SALE-ANSWER-001', chat: BIZ_GROUP, senderId: '11111111@lid',
+        ts: 1700001610, type: 'text', text: 'pending'
+    }, { db: testDb, nowSec: 1700001610 });
+    assert(shortSaleSaved.replies[0].text.includes('₹2450'));
+    assert.strictEqual(testDb.prepare("SELECT count(*) AS c FROM sales WHERE sold_for_paise = 245000 AND sold_to = 'Meera'").get().c, 2);
 
     // 14D: .biz backup (manual backup — skipped in :memory: test, just verify no crash)
     const backupResult = biz.db.createBackup({ dbPath: ':memory:' });
