@@ -18,6 +18,7 @@ const { buildMentionDirectory, replaceIncomingMentions } = require('./lib/mentio
 const { containsLink } = require('./lib/utils');
 const biz = require('./lib/biz');
 let bizBackupSchedulerStarted = false;
+let sheetsPullWatchdogStarted = false;
 
 // RAM CACHE for anti-delete and performance. Keep the cap strict: high-volume
 // chats can receive more than 1,000 messages before the one-hour TTL expires.
@@ -188,15 +189,18 @@ async function startBunty() {
     }, 60000);
 
     // Inbound Google Sheets sync watchdog (pulls Google Form responses every 10 mins)
-    setInterval(async () => {
-        try {
-            if (biz.sheets.isEnabled()) {
-                await biz.sheets.pullNewRows();
+    if (!sheetsPullWatchdogStarted) {
+        sheetsPullWatchdogStarted = true;
+        setInterval(async () => {
+            try {
+                if (biz.sheets.isEnabled()) {
+                    await biz.sheets.pullNewRows();
+                }
+            } catch (e) {
+                console.error('[SHEETS WATCHDOG] Periodic pull error:', e.message);
             }
-        } catch (e) {
-            console.error('[SHEETS WATCHDOG] Periodic pull error:', e.message);
-        }
-    }, 10 * 60 * 1000);
+        }, 10 * 60 * 1000);
+    }
 
     // Nightly SQLite backup at 02:00 IST (keeping last 7 daily snapshots)
     // Uses VACUUM INTO which is WAL-safe and consistent under concurrent reads.
@@ -237,6 +241,7 @@ async function startBunty() {
         if (m.type !== 'notify' && m.type !== 'append') return;
 
         for (const msg of m.messages) {
+            try {
             if (!msg.message) continue;
 
             const key = msg.key;
@@ -496,6 +501,9 @@ async function startBunty() {
 
                     await aiCmd.run({ ...ctx, text: prompt, mentionDirectory });
                 }
+            }
+            } catch (msgErr) {
+                console.error(`[MESSAGE] Failed to process ${msg?.key?.id || 'unknown message'}:`, msgErr);
             }
         }
     });

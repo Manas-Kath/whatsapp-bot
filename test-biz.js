@@ -5,7 +5,7 @@ const Database = require('better-sqlite3');
 const biz = require('./lib/biz');
 const bizCmd = require('./commands/admin/biz');
 
-console.log('[TEST] Starting Business Module Tests (Phase 1 & Phase 2)...');
+console.log('[TEST] Starting Business Module Tests (Phases 1, 2 & 3)...');
 
 // Setup test in-memory SQLite DB
 const testDb = new Database(':memory:');
@@ -113,6 +113,19 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     const input3 = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-003'").get();
     assert.strictEqual(input3.person_id, mom.id);
     assert.strictEqual(input3.outcome, 'recorded');
+
+    const staleRes = await biz.handle({
+        msgId: 'MSG-STALE-001',
+        chat: BIZ_GROUP,
+        senderId: '11111111@lid',
+        ts: 1700000000,
+        type: 'text',
+        text: 'Meera ko Idhu suit 1000 pending'
+    }, { db: testDb, nowSec: 1700000000 + (25 * 3600) });
+    assert.strictEqual(staleRes.handled, true);
+    assert.deepStrictEqual(staleRes.replies, [], 'Stale messages must not receive a reply');
+    const staleInput = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-STALE-001'").get();
+    assert.strictEqual(staleInput.outcome, 'stale', 'Stale input should be retained in the audit log');
     console.log('✓ Test 4: Chat and sender permission boundaries validated');
 
     // --- TEST 5: NLP Normalizer & Lexicon ---
@@ -144,6 +157,8 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     assert(saleRes1.replies[0].text.includes('₹2450'));
     assert(saleRes1.replies[0].text.includes('Payment: Pending'));
     assert(saleRes1.replies[0].text.includes('Brand: Idhu'));
+    const saleInput1 = testDb.prepare("SELECT * FROM inputs WHERE msg_id = 'MSG-SALE-001'").get();
+    assert.strictEqual(JSON.parse(saleInput1.parsed_json).intent, 'record_sale', 'Digit-bearing pending sale must parse as a sale');
 
     const saleRow1 = testDb.prepare("SELECT * FROM sales WHERE sold_to = 'Meera'").get();
     assert.strictEqual(saleRow1.sold_for_paise, 245000);
@@ -188,6 +203,32 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
 
     const pendingAfter = biz.sales.findPendingSales('Meera', testDb);
     assert.strictEqual(pendingAfter.length, 0, 'Meera pending sale should now be settled');
+
+    // Regression: a numeric payment phrase must not be mistaken for a collection report.
+    const papaPending = biz.sales.recordSale({
+        ts: 1700000310,
+        sold_to: 'Papa',
+        brand: 'Idhu',
+        colour: 'Blue',
+        other_details: 'Suit',
+        sold_for_paise: 200000,
+        money_note: 'Pending',
+        seller_id: mom.id
+    }, testDb).sale;
+    const papaPayRes = await biz.handle({
+        msgId: 'MSG-PAY-UPI-001',
+        chat: BIZ_GROUP,
+        senderId: '11111111@lid',
+        ts: 1700000320,
+        type: 'text',
+        text: 'Papa ne 2000 UPI received'
+    }, { db: testDb, nowSec: 1700000320 });
+    assert(papaPayRes.replies[0].text.includes('paid ₹2000'), 'Papa UPI payment should settle the pending sale');
+    const papaPayment = testDb.prepare('SELECT * FROM payments WHERE sale_id = ?').get(papaPending.id);
+    assert(papaPayment, 'Payment message should create a payment row');
+    assert.strictEqual(papaPayment.amount_paise, 200000);
+    assert.strictEqual(papaPayment.mode, 'upi');
+    assert.strictEqual(JSON.parse(testDb.prepare("SELECT parsed_json FROM inputs WHERE msg_id = 'MSG-PAY-UPI-001'").get().parsed_json).intent, 'record_payment');
     console.log('✓ Test 7: Settle pending credit sale passes');
 
     // --- TEST 8: Phase 2 - Missing Payment Status & Follow-up Question ---
@@ -308,7 +349,12 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         isGroup: true,
         db: testDb
     });
-    assert(lastSentText.includes('Google Sheets Web App linked successfully'));
+    assert(lastSentText.includes('Google Sheets URL saved'));
+    assert.strictEqual(biz.sheets.isEnabled(testDb), false, 'Sheets should stay disabled without a sync secret');
+    const noSecretSync = await biz.sheets.syncAll(testDb);
+    assert.strictEqual(noSecretSync.success, false);
+    assert(noSecretSync.error.includes('secret is required'));
+    biz.db.setSetting('biz_sheets_secret', 'test-sync-secret', testDb);
     assert.strictEqual(biz.sheets.isEnabled(testDb), true);
 
     // Mock global fetch for testing outbound & inbound sheet syncing
@@ -319,6 +365,15 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     global.fetch = async (url, options = {}) => {
         if (options.method === 'POST') {
             lastPostPayload = JSON.parse(options.body);
+            if (lastPostPayload.action === 'pull_rows') {
+                return {
+                    json: async () => ({
+                        success: true,
+                        last_row: 5,
+                        rows: mockGetRows
+                    })
+                };
+            }
             return {
                 json: async () => ({ success: true, row: 10 })
             };
@@ -349,6 +404,7 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         const pushRes = await biz.sheets.pushSale(testSale, testDb);
         assert.strictEqual(pushRes.success, true);
         assert.strictEqual(lastPostPayload.action, 'append_sale');
+        assert.strictEqual(lastPostPayload.secret, 'test-sync-secret');
         assert.strictEqual(lastPostPayload.sold_to, 'Simran');
         assert.strictEqual(lastPostPayload.amount, 2500);
 
@@ -376,11 +432,30 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
         const pullRes = await biz.sheets.pullNewRows(testDb);
         assert.strictEqual(pullRes.success, true);
         assert.strictEqual(pullRes.pulled, 1);
+        assert.strictEqual(lastPostPayload.action, 'pull_rows');
+        assert.strictEqual(lastPostPayload.secret, 'test-sync-secret');
+        assert.strictEqual(typeof lastPostPayload.from_row, 'number');
 
         const kavitaRow = testDb.prepare("SELECT * FROM sales WHERE sold_to = 'Kavita'").get();
         assert(kavitaRow, 'Google Form entry should be imported into sales');
         assert.strictEqual(kavitaRow.sold_for_paise, 180000);
         assert.strictEqual(kavitaRow.colour, 'Green');
+
+        // A concurrent pull must be rejected while the first request is still in flight.
+        const pullFetch = global.fetch;
+        let finishBlockedFetch;
+        global.fetch = async () => new Promise(resolve => {
+            finishBlockedFetch = () => resolve({
+                json: async () => ({ success: true, last_row: 5, rows: [] })
+            });
+        });
+        const blockedPull = biz.sheets.pullNewRows(testDb);
+        await new Promise(resolve => setImmediate(resolve));
+        const overlappingPull = await biz.sheets.pullNewRows(testDb);
+        assert.strictEqual(overlappingPull.reason, 'already_in_progress');
+        finishBlockedFetch();
+        assert.strictEqual((await blockedPull).success, true);
+        global.fetch = pullFetch;
 
         // Test .biz sync command
         await bizCmd.run({
@@ -397,6 +472,8 @@ biz.db.setSetting('biz_group_jid', BIZ_GROUP, testDb);
     } finally {
         global.fetch = originalFetch;
     }
+    // Keep later tests from attempting a real async Sheets write.
+    biz.db.setSetting('biz_sheets_url', '', testDb);
 
     // --- TEST 13: Phase 3 - Natural Language Report Intents ---
     // 13A: "aaj ka hisaab" → query_summary

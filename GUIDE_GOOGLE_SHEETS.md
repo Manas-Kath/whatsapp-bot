@@ -24,9 +24,10 @@ Bunty keeps your local SQLite database and your Google Sheet ("Sale Log") **in t
    - **Description:** `Bunty Bot Sync`
    - **Execute as:** `Me (your Google email)`
    - **Who has access:** `Anyone`
-4. Click **Deploy**.
-5. Grant permissions when prompted by Google (click *Advanced* $\rightarrow$ *Go to Bunty Bot Sync (unsafe)* $\rightarrow$ *Allow*).
-6. **Copy the Web App URL** (looks like `https://script.google.com/macros/s/AKfycb.../exec`).
+4. In Code.gs, replace CHANGE_ME_TO_A_LONG_RANDOM_SECRET with a long random secret and save.
+5. Click **Deploy**.
+6. Grant permissions when prompted by Google (click *Advanced* $\rightarrow$ *Go to Bunty Bot Sync (unsafe)* $\rightarrow$ *Allow*).
+7. **Copy the Web App URL** (looks like `https://script.google.com/macros/s/AKfycb.../exec`).
 
 ### Step 4: Link URL with Bunty
 You can link it directly from WhatsApp! Send:
@@ -37,6 +38,10 @@ You can link it directly from WhatsApp! Send:
 *(Alternatively, add `GOOGLE_SHEET_WEBAPP_URL=https://script.google.com/...` into your `.env` file).*
 
 ---
+
+Set GOOGLE_SHEET_SYNC_SECRET in Bunty's .env to the same value as Apps Script's
+SECRET_TOKEN. Sync stays disabled until this secret is configured. Bunty sends the
+secret in the JSON request body for both sheet reads and writes.
 
 ## 📋 Available Commands
 

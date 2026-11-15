@@ -127,7 +127,7 @@ module.exports = {
             }
             biz.db.setSetting('biz_sheets_url', url.trim(), db);
             return sock.sendMessage(jid, {
-                text: `(¬_¬) [ BIZ ] ✅\n\nGoogle Sheets Web App linked successfully!\nSales will now be mirrored in real-time.\nUse \`.biz sync\` to pull any new Google Form entries.`
+                text: `(¬_¬) [ BIZ ] ✅\n\nGoogle Sheets URL saved. Set GOOGLE_SHEET_SYNC_SECRET in Bunty and use the same value for SECRET_TOKEN in Apps Script before syncing.\nUse \`.biz sync\` to pull new Google Form entries.`
             }, { quoted: msg });
         }
 
@@ -174,7 +174,9 @@ module.exports = {
 
         if (sub === 'status') {
             const bizGroup = biz.db.getSetting('biz_group_jid', db) || process.env.BIZ_GROUP_JID || 'Not configured';
-            const sheetUrl = biz.sheets.isEnabled(db) ? 'Linked & Active' : 'Not configured (use .biz setsheet)';
+            const sheetUrl = biz.sheets.isEnabled(db)
+                ? 'Linked & Active'
+                : (biz.sheets.getWebappUrl(db) ? 'URL saved; sync secret missing' : 'Not configured (use .biz setsheet)');
             const maxAgeHours = biz.db.getSetting('biz_max_msg_age_hours', db) || process.env.BIZ_MAX_MSG_AGE_HOURS || '24';
             const peopleCount = db.prepare('SELECT count(*) as count FROM people').get().count;
             const inputCount = db.prepare('SELECT count(*) as count FROM inputs').get().count;
