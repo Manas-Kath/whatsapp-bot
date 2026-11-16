@@ -17,6 +17,7 @@ services:
       - ./auth_info:/app/auth_info
       - ./database.json:/app/database.json
       - ./biz-data:/app/biz-data
+      - ./chat_memory.json:/app/chat_memory.json
       - ./logs:/app/logs
     deploy:
       resources:

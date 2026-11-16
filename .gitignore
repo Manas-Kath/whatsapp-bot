@@ -10,6 +10,7 @@ auth_info/
 # Database (Local)
 database.json
 database.temp.json
+chat_memory.json
 biz-data/
 *.db
 *.db-wal

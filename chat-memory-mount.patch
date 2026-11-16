@@ -1,0 +1,48 @@
+diff --git a/.dockerignore b/.dockerignore
+index 0a7fae9..f9191be 100644
+--- a/.dockerignore
++++ b/.dockerignore
+@@ -1,6 +1,7 @@
+ node_modules
+ auth_info
+ database.temp.json
++chat_memory.json
+ biz-data
+ safety.json
+ logs.txt
+diff --git a/.gitignore b/.gitignore
+index 0f41f7a..e65b985 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -10,6 +10,7 @@ auth_info/
+ # Database (Local)
+ database.json
+ database.temp.json
++chat_memory.json
+ biz-data/
+ *.db
+ *.db-wal
+diff --git a/docker-compose.yml b/docker-compose.yml
+index f56e23c..944aaf9 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -17,6 +17,7 @@ services:
+       - ./auth_info:/app/auth_info
+       - ./database.json:/app/database.json
+       - ./biz-data:/app/biz-data
++      - ./chat_memory.json:/app/chat_memory.json
+       - ./logs:/app/logs
+     deploy:
+       resources:
+diff --git a/docker/portainer-stack.yml b/docker/portainer-stack.yml
+index f8eb938..c25a405 100644
+--- a/docker/portainer-stack.yml
++++ b/docker/portainer-stack.yml
+@@ -18,6 +18,7 @@ services:
+       - /DATA/AppData/bunty/auth_info:/app/auth_info
+       - /DATA/AppData/bunty/database.json:/app/database.json
+       - /DATA/AppData/bunty/biz-data:/app/biz-data
++      - /DATA/AppData/bunty/chat_memory.json:/app/chat_memory.json
+       - /DATA/AppData/bunty/logs:/app/logs
+     deploy:
+       resources:
